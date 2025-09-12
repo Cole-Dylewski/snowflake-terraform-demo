@@ -1,0 +1,75 @@
+version: "3.9"
+
+services:
+  reverseproxy:
+    image: nginx:alpine
+    container_name: reverseproxy
+    depends_on:
+      fastapi:
+        condition: service_started
+    ports:
+      - "80:80"
+    volumes:
+      # We use default.conf inside /etc/nginx/conf.d/
+      - ./reverseproxy/nginx.conf:/etc/nginx/conf.d/default.conf:ro
+    restart: unless-stopped
+
+  src_db:
+    image: postgres:16
+    container_name: src_db
+    environment:
+      POSTGRES_USER: ${SRC_DB_USER}
+      POSTGRES_PASSWORD: ${SRC_DB_PASSWORD}
+      POSTGRES_DB: ${SRC_DB_NAME}
+    ports:
+      # host:container — use a different host port than dest_db
+      - "5433:5432"
+    volumes:
+      - src_db_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${SRC_DB_USER} -d ${SRC_DB_NAME}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  dest_db:
+    image: postgres:16
+    container_name: dest_db
+    environment:
+      POSTGRES_USER: ${DEST_DB_USER}
+      POSTGRES_PASSWORD: ${DEST_DB_PASSWORD}
+      POSTGRES_DB: ${DEST_DB_NAME}
+    ports:
+      # different host port than src_db
+      - "5434:5432"
+    volumes:
+      - dest_db_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DEST_DB_USER} -d ${DEST_DB_NAME}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  fastapi:
+    build:
+      context: ./fastapi
+      dockerfile: Dockerfile
+    container_name: fastapi
+    environment:
+      # Optional: pass DB URLs if you want to test connections later
+      SRC_DATABASE_URL: postgresql://${SRC_DB_USER}:${SRC_DB_PASSWORD}@src_db:5432/${SRC_DB_NAME}
+      DEST_DATABASE_URL: postgresql://${DEST_DB_USER}:${DEST_DB_PASSWORD}@dest_db:5432/${DEST_DB_NAME}
+    depends_on:
+      src_db:
+        condition: service_healthy
+      dest_db:
+        condition: service_healthy
+    expose:
+      - "8000"
+    restart: unless-stopped
+
+volumes:
+  src_db_data:
+  dest_db_data:

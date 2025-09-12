@@ -1,0 +1,21 @@
+-r requirements.txt  # include core runtime
+
+# Interactive dev tools
+ipython>=8.20
+jedi>=0.19
+matplotlib-inline>=0.1
+prompt-toolkit>=3.0
+
+# Jupyter + Notebook stack
+jupyterlab>=4.1
+notebook>=7.1
+ipywidgets>=8.1
+jupyter>=1.0
+jupyter-console>=6.6
+jupyterlab_server>=2.27
+nbconvert>=7.16
+nbformat>=5.10
+
+# Extra debug & profiling
+debugpy>=1.8
+psutil>=5.9
