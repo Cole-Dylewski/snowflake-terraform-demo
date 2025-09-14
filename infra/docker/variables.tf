@@ -54,3 +54,12 @@ variable "http_port" {
   type    = number
   default = 80
 }
+
+variable "pgweb_src_port" {
+  type    = number
+  default = 8081
+}
+variable "pgweb_dst_port" {
+  type    = number
+  default = 8082
+}
