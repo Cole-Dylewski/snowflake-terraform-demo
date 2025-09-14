@@ -13,6 +13,10 @@ def get_conn(dsn):
 @app.get("/healthz")
 def health():
     return {"status": "ok"}
+@app.get("/")
+def root():
+    return {"message": "Hello World"}
+
 
 @app.get("/counts")
 def counts():

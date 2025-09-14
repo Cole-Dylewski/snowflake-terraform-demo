@@ -1,0 +1,22 @@
+# Stop all running containers
+docker stop $(docker ps -aq) 2>/dev/null || true
+
+# Remove all containers (running + stopped)
+docker rm -f $(docker ps -aq) 2>/dev/null || true
+
+# Remove all images
+docker rmi -f $(docker images -aq) 2>/dev/null || true
+
+# Remove all volumes
+docker volume rm $(docker volume ls -q) 2>/dev/null || true
+
+# Remove all custom networks (skip default ones: bridge, host, none)
+docker network rm $(docker network ls | grep -vE 'bridge|host|none' | awk 'NR>1 {print $1}') 2>/dev/null || true
+
+# Optional: prune everything (dangling build cache, etc.)
+docker system prune -af --volumes
+
+docker ps -a
+docker images -a
+docker volume ls
+docker network ls
