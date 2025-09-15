@@ -49,7 +49,6 @@ resource "docker_container" "src_db" {
   ports {
     internal = 5432
     external = var.src_host_port
-
   }
 
   mounts {
@@ -86,7 +85,6 @@ resource "docker_container" "dst_db" {
   ports {
     internal = 5432
     external = var.dst_host_port
-
   }
 
   mounts {
@@ -105,12 +103,23 @@ resource "docker_container" "dst_db" {
   restart = "always"
 }
 
-# Build FastAPI image from repo/app (kept)
+locals {
+  app_dir    = abspath("${path.module}/../../app")
+  req_hash   = filesha256("${local.app_dir}/requirements.txt")
+  dockerfile = "${local.app_dir}/Dockerfile"
+}
+
+# Build FastAPI image (deps baked in, req_hash forces rebuild on changes)
 resource "docker_image" "api" {
   name = "demo-fastapi:local"
+
   build {
-    context    = "${path.module}/../../app"
+    context    = local.app_dir
     dockerfile = "Dockerfile"
+
+    build_args = {
+      REQ_HASH = local.req_hash
+    }
   }
 }
 
@@ -133,7 +142,6 @@ resource "docker_container" "api" {
     docker_container.dst_db
   ]
 
-  # expose API directly to host on port 80
   ports {
     internal = 8000
     external = var.api_port
@@ -155,7 +163,6 @@ resource "docker_container" "api" {
   restart = "always"
 }
 
-
 # pgAdmin UI
 resource "docker_container" "pgadmin" {
   name  = "pgadmin"
@@ -173,7 +180,6 @@ resource "docker_container" "pgadmin" {
   ports {
     internal = 80
     external = var.pgadmin_port
-
   }
 
   restart = "always"
@@ -188,11 +194,9 @@ resource "docker_container" "pgweb_src" {
     name = docker_network.app_net.name
   }
 
-  # publish UI to host
   ports {
     internal = 8081
     external = var.pgweb_src_port
-
   }
 
   command = [
@@ -213,11 +217,9 @@ resource "docker_container" "pgweb_dst" {
     name = docker_network.app_net.name
   }
 
-  # publish UI to host
   ports {
     internal = 8081
     external = var.pgweb_dst_port
-
   }
 
   command = [
@@ -228,11 +230,17 @@ resource "docker_container" "pgweb_dst" {
 
   restart = "always"
 }
+
+# nginx image
+data "docker_registry_image" "nginx" {
+  name = "nginx:alpine"
+}
 resource "docker_image" "nginx" {
   name          = data.docker_registry_image.nginx.name
   pull_triggers = [data.docker_registry_image.nginx.sha256_digest]
 }
 
+# nginx container
 resource "docker_container" "nginx" {
   name  = "nginx"
   image = docker_image.nginx.image_id
@@ -244,13 +252,35 @@ resource "docker_container" "nginx" {
   ports {
     internal = 80
     external = var.http_port
-
+    ip       = "0.0.0.0"
+  }
+  ports {
+    internal = 443
+    external = 443
+    ip       = "0.0.0.0"
+  }
+  ports {
+    internal = 80
+    external = var.http_port
+    ip       = "::"
+  }
+  ports {
+    internal = 443
+    external = 443
+    ip       = "::"
   }
 
   mounts {
     type      = "bind"
     source    = abspath("${path.module}/nginx/nginx.conf")
     target    = "/etc/nginx/nginx.conf"
+    read_only = true
+  }
+
+  mounts {
+    type      = "bind"
+    source    = abspath("${path.module}/nginx/certs")
+    target    = "/etc/nginx/certs"
     read_only = true
   }
 
@@ -262,9 +292,4 @@ resource "docker_container" "nginx" {
   ]
 
   restart = "always"
-}
-
-# Pull nginx image metadata (needed by docker_image.nginx)
-data "docker_registry_image" "nginx" {
-  name = "nginx:alpine"
 }
