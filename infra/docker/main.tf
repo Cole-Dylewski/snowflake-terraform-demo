@@ -107,6 +107,7 @@ locals {
   app_dir    = abspath("${path.module}/../../app")
   req_hash   = filesha256("${local.app_dir}/requirements.txt")
   dockerfile = "${local.app_dir}/Dockerfile"
+  repo_root  = abspath("${path.module}/../..")            # NEW
 }
 
 # Build FastAPI image (deps baked in, req_hash forces rebuild on changes)
@@ -114,15 +115,13 @@ resource "docker_image" "api" {
   name = "demo-fastapi:local"
 
   build {
-    context    = local.app_dir
-    dockerfile = "Dockerfile"
-
+    context    = local.repo_root            # CHANGED: was local.app_dir
+    dockerfile = "app/Dockerfile"           # CHANGED: path is relative to context
     build_args = {
       REQ_HASH = local.req_hash
     }
   }
 }
-
 # FastAPI container (HOT RELOAD)
 resource "docker_container" "api" {
   name  = "api"
@@ -132,9 +131,37 @@ resource "docker_container" "api" {
     name = docker_network.app_net.name
   }
 
+  ports {
+    internal = 8000
+    external = var.api_port
+  }
+
+  # Bind mounts: app/ and khepri_utils/ at repo root (no TF var needed)
+  mounts {
+    type      = "bind"
+    source    = abspath("${path.module}/../../app")
+    target    = "/app"
+    read_only = false
+  }
+  mounts {
+    type      = "bind"
+    source    = abspath("${path.module}/../../khepri_utils")
+    target    = "/ext/khepri_utils"
+    read_only = false
+  }
+
+  # Single env block (merge your DB URLs + PYTHONPATH)
+  # CHANGED: PYTHONPATH so Python finds /ext/khepri_utils as a package under /ext
   env = [
     "DATABASE_URL_SRC=postgresql://${var.src_db_user}:${var.src_db_password}@src_db:5432/${var.src_db_name}",
     "DATABASE_URL_DST=postgresql://${var.dst_db_user}:${var.dst_db_password}@dst_db:5432/${var.dst_db_name}",
+    "PYTHONPATH=/ext:/app"
+  ]
+
+  # CHANGED: drop the pip install; keep reload watching both dirs
+  command = [
+    "bash", "-lc",
+    "uvicorn main:app --host 0.0.0.0 --port 8000 --reload --reload-dir /app --reload-dir /ext/khepri_utils"
   ]
 
   depends_on = [
@@ -142,26 +169,10 @@ resource "docker_container" "api" {
     docker_container.dst_db
   ]
 
-  ports {
-    internal = 8000
-    external = var.api_port
-  }
-
-  mounts {
-    type   = "bind"
-    source = abspath("${path.module}/../../app")
-    target = "/app"
-  }
-
-  command = [
-    "uvicorn", "main:app",
-    "--host", "0.0.0.0",
-    "--port", "8000",
-    "--reload"
-  ]
-
   restart = "always"
 }
+
+
 
 # pgAdmin UI
 resource "docker_container" "pgadmin" {
