@@ -1,10 +1,36 @@
-# .dockerignore
-# .env
-.venv/
+# Local environments and virtualenvs
+.env
 .venv
-.venv/*
-.venv*
-.venv/** */
+.venv*/
 .venv**
+**/__pycache__/
+**/*.pyc
+**/*.pyo
+**/*.pyd
+
+# Git
 .git
 .gitignore
+
+# Python packaging/build artifacts
+*.egg-info
+dist/
+build/
+
+# Node / frontend stuff (if any gets added later)
+node_modules/
+
+# Terraform local state
+*.tfstate
+*.tfstate.*
+.terraform/
+.terraform.lock.hcl
+
+# Docker noise
+Dockerfile
+.dockerignore
+
+# OS / editor
+.DS_Store
+*.swp
+*.swo

@@ -20,6 +20,7 @@ A portable, Terraform-managed dev environment that stands up:
 * [Quick Start](#quick-start)
 * [Tear Everything Down](#tear-everything-down)
 * [Terraform Commands](#terraform-commands)
+* [Streaming Logs](#streaming-logs)
 * [Service URLs](#service-urls)
 * [Configuration (Variables)](#configuration-variables)
 * [Development (Hot Reload)](#development-hot-reload)
@@ -95,6 +96,9 @@ flowchart LR
 git clone https://github.com/Cole-Dylewski/khepri_utils
 terraform -chdir=infra/docker init
 terraform -chdir=infra/docker apply -auto-approve
+
+#or with Logs
+TF_LOG=INFO terraform -chdir=infra/docker apply -auto-approve
 
 # Verify ports & containers
 docker ps --format 'table {{.Names}}\t{{.Ports}}'
@@ -185,6 +189,9 @@ terraform -chdir=infra/docker plan
 # Create / update the environment
 terraform -chdir=infra/docker apply -auto-approve
 
+# Create / update the environment with logs
+terraform -chdir=infra/docker apply -auto-approve
+
 # Show handy outputs (URLs, CLI snippets)
 terraform -chdir=infra/docker output
 
@@ -202,7 +209,45 @@ docker network prune -f
 ```
 
 ---
+## Streaming Logs
 
+### FastAPI (main app)
+```bash
+docker logs -f api
+```
+
+### Postgres (source & destination)
+```bash
+docker logs -f src_db
+docker logs -f dst_db
+```
+
+### pgAdmin
+```bash
+docker logs -f pgadmin
+```
+
+### pgweb (source & destination)
+```bash
+docker logs -f pgweb_src
+docker logs -f pgweb_dst
+```
+
+### Nginx
+```bash
+docker logs -f nginx
+```
+
+---
+
+## 📑 Tips
+
+- Add \`--tail 100\` if you only want the last 100 lines:
+  \`\`\`bash
+  docker logs -f --tail 100 api
+  \`\`\`
+- Open multiple terminals (one per service) to watch several logs at once.  
+- To stop following, press \`Ctrl+C\`.
 ## Service URLs
 
 * **FastAPI (via nginx)**: [http://localhost/](http://localhost/)

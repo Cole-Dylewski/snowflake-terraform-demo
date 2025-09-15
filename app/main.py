@@ -12,6 +12,8 @@ import os, json
 import requests
 import boto3
 
+from khepri_utils.utils import sql
+
 
 app = FastAPI()
 
