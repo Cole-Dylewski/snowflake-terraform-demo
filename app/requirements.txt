@@ -5,3 +5,5 @@ pandas
 requests
 boto3
 asyncpg
+snowflake-connector-python
+snowflake-snowpark-python

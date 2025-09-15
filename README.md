@@ -190,7 +190,9 @@ terraform -chdir=infra/docker plan
 terraform -chdir=infra/docker apply -auto-approve
 
 # Create / update the environment with logs
-terraform -chdir=infra/docker apply -auto-approve
+TF_LOG=INFO terraform -chdir=infra/docker apply -auto-approve
+docker logs -f nginx
+docker logs -f api
 
 # Show handy outputs (URLs, CLI snippets)
 terraform -chdir=infra/docker output
