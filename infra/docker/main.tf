@@ -136,7 +136,7 @@ resource "docker_container" "api" {
     external = var.api_port
   }
 
-  # Bind mounts: app/ and khepri_utils/ at repo root (no TF var needed)
+  # Bind mounts: app/ and _utils/ at repo root (no TF var needed)
   mounts {
     type      = "bind"
     source    = abspath("${path.module}/../../app")
@@ -145,13 +145,13 @@ resource "docker_container" "api" {
   }
   mounts {
     type      = "bind"
-    source    = abspath("${path.module}/../../khepri_utils")
-    target    = "/ext/khepri_utils"
+    source    = abspath("${path.module}/../../_utils")
+    target    = "/ext/_utils"
     read_only = false
   }
 
   # Single env block (merge your DB URLs + PYTHONPATH)
-  # CHANGED: PYTHONPATH so Python finds /ext/khepri_utils as a package under /ext
+  # CHANGED: PYTHONPATH so Python finds /ext_utils as a package under /ext
   env = [
     "DATABASE_URL_SRC=postgresql://${var.src_db_user}:${var.src_db_password}@src_db:5432/${var.src_db_name}",
     "DATABASE_URL_DST=postgresql://${var.dst_db_user}:${var.dst_db_password}@dst_db:5432/${var.dst_db_name}",
@@ -161,7 +161,7 @@ resource "docker_container" "api" {
   # CHANGED: drop the pip install; keep reload watching both dirs
   command = [
     "bash", "-lc",
-    "uvicorn main:app --host 0.0.0.0 --port 8000 --reload --reload-dir /app --reload-dir /ext/khepri_utils"
+    "uvicorn main:app --host 0.0.0.0 --port 8000 --reload --reload-dir /app --reload-dir /ext/_utils"
   ]
 
   depends_on = [

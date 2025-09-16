@@ -10,7 +10,7 @@ import pandas as pd
 from pydantic import BaseModel
 import os, json
 import requests
-from khepri_utils.snowflake.snowpark import SnowparkClient
+from _utils.snowflake.snowpark import SnowparkClient
 from snowflake.snowpark import types as spt
 
 

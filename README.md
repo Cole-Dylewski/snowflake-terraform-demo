@@ -95,7 +95,7 @@ flowchart LR
 
 ```bash
 # From repo root
-git clone https://github.com/Cole-Dylewski/khepri_utils
+git clone https://github.com/Cole-Dylewski/_utils
 terraform -chdir=infra/docker init
 terraform -chdir=infra/docker apply -auto-approve
 

@@ -209,8 +209,9 @@ __marimo__/
 
 .venv/
 .venv
-khepri_utils/*
-khepri_utils/
-
+_utils/*
+_utils/
+infra/docker/terraform.*
 infra/docker/terraform.tfstate
 infra/docker/terraform.tfstate.backup
+
