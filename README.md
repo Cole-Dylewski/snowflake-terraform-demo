@@ -89,7 +89,9 @@ flowchart LR
 
 ---
 
-## Quick Start
+## Quick Start & Startup Instructions
+
+### Quick Start
 
 ```bash
 # From repo root
@@ -97,7 +99,7 @@ git clone https://github.com/Cole-Dylewski/khepri_utils
 terraform -chdir=infra/docker init
 terraform -chdir=infra/docker apply -auto-approve
 
-#or with Logs
+# or with Logs
 TF_LOG=INFO terraform -chdir=infra/docker apply -auto-approve
 
 # Verify ports & containers
@@ -113,6 +115,80 @@ curl http://localhost/health
 # pgweb (source):            http://localhost:8081/
 # pgweb (destination):       http://localhost:8082/
 ```
+
+---
+
+### Startup Instructions
+
+Follow these steps to get your development environment running:
+
+1. **Clone the Repository**
+
+   ```bash
+   git clone https://github.com/your-org/snowflake-terraform-demo.git
+   cd snowflake-terraform-demo
+   ```
+
+2. **Set Up Environment Variables**
+
+   * Copy the example file:
+
+     ```bash
+     cp .env.example .env
+     ```
+   * Or run the helper script to generate and validate your `.env` file:
+
+     ```bash
+      chmod +x setup.sh
+      ./setup.sh
+     ```
+
+
+    * Fill in any missing values when prompted.
+    * The `.env` file is ignored by Git, so your secrets remain local.
+
+3. **Build and Start Services**
+   Using Docker Compose:
+
+   ```bash
+   docker compose --env-file .env up -d --build
+   ```
+
+4. **Verify Services Are Running**
+   Check container health and logs:
+
+   ```bash
+   docker compose ps
+   docker compose logs -f
+   ```
+
+5. **Access Services**
+
+   | Service      | URL / Port                                     |
+   | ------------ | ---------------------------------------------- |
+   | FastAPI      | [http://localhost:8000](http://localhost:8000) |
+   | Nginx Proxy  | [http://localhost](http://localhost)           |
+   | Source DB UI | [http://localhost:8081](http://localhost:8081) |
+   | Dest DB UI   | [http://localhost:8082](http://localhost:8082) |
+   | pgAdmin      | [http://localhost:8080](http://localhost:8080) |
+
+6. **Stop Services**
+
+   ```bash
+   docker compose down
+   ```
+
+---
+
+💡 Tip: For Terraform-managed environments, remember to run:
+
+```bash
+terraform init
+terraform apply
+```
+
+to provision and configure the infrastructure before bringing up the containers.
+
 
 ---
 
