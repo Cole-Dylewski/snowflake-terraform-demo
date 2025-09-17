@@ -64,14 +64,18 @@ infra/
 
 ```mermaid
 flowchart LR
-  Browser((Your Browser)) -- :80/443 --> Nginx[Nginx]
-  Nginx -- reverse_proxy --> API[FastAPI (uvicorn)]
-  API -- SQL --> SRC_DB[(Postgres: src_db)]
-  API -- SQL --> DST_DB[(Postgres: dst_db)]
+  Browser((Your Browser)) -->|:80/443| Nginx[Nginx]
+  Nginx -->|reverse proxy| API[FastAPI]
+  API -->|SQL| SRC_DB[(Postgres: src_db)]
+  API -->|SQL| DST_DB[(Postgres: dst_db)]
 
-  Browser -- :8080 --> PGADMIN[pgAdmin]
-  Browser -- :8081 --> PGWEB_SRC[pgweb (source)]
-  Browser -- :8082 --> PGWEB_DST[pgweb (destination)]
+  Browser -->|:8080| PGADMIN[pgAdmin]
+  Browser -->|:8081| PGWEB_SRC[pgweb (source)]
+  Browser -->|:8082| PGWEB_DST[pgweb (destination)]
+  Browser -->|:9090| SPARK_MASTER[Spark Master UI]
+  Browser -->|:9091| SPARK_WORKER[Spark Worker UI]
+  Browser -->|:18080| SPARK_HISTORY[Spark History]
+  Browser -->|:8889| JUPYTER[JupyterLab]
 
   subgraph Docker Network: app_net
     Nginx
@@ -81,11 +85,16 @@ flowchart LR
     PGADMIN
     PGWEB_SRC
     PGWEB_DST
+    SPARK_MASTER
+    SPARK_WORKER
+    SPARK_HISTORY
+    JUPYTER
   end
+
 ```
 
 * Containers communicate on an isolated Docker network **`app_net`**.
-* Only **Nginx (80/443)**, **pgAdmin (8080)**, **pgweb-src (8081)**, **pgweb-dst (8082)** are published to the host.
+* Only **Nginx (80/443)**, **pgAdmin (8080)**, **pgweb-src (8081)**, **pgweb-dst (8082)**, **Spark Master (9090)**, **Spark Worker-1 (9091)**, **Spark History (18080)**, and **JupyterLab (8889)** are published to the host.
 
 ---
 
@@ -95,12 +104,15 @@ flowchart LR
 
 ```bash
 # From repo root
-git clone https://github.com/Cole-Dylewski/_utils
-terraform -chdir=infra/docker init
-terraform -chdir=infra/docker apply -auto-approve
+cp -n .env.example .env
 
-# or with Logs
-TF_LOG=INFO terraform -chdir=infra/docker apply -auto-approve
+terraform -chdir=infra/docker init
+
+# Build a JSON var-file from .env and apply
+awk -F= 'BEGIN{printf "{\n  \"env\": {"} NF==2 && $1 !~ /^[#]/ { gsub(/\r/, "", $2); gsub(/"/, "\\\"", $2); if(n++) printf ", "; printf "\n    \"%s\": \"%s\"", $1, $2 } END{printf "\n  }\n}\n"}' .env > /tmp/env.auto.tfvars.json
+
+terraform -chdir=infra/docker apply -auto-approve -var-file=/tmp/env.auto.tfvars.json
+
 
 # Verify ports & containers
 docker ps --format 'table {{.Names}}\t{{.Ports}}'
@@ -114,19 +126,22 @@ curl http://localhost/health
 # pgAdmin:                   http://localhost:8080/
 # pgweb (source):            http://localhost:8081/
 # pgweb (destination):       http://localhost:8082/
+# Spark Master:              http://localhost:9090/
+# Spark Worker-1:            http://localhost:9091/
+# Spark History:             http://localhost:18080/
+# JupyterLab:                http://localhost:8889/?token=dev
 ```
 
----
-
-### Startup Instructions
+## Startup Instructions
 
 Follow these steps to get your development environment running:
 
 1. **Clone the Repository**
 
    ```bash
-   git clone https://github.com/your-org/snowflake-terraform-demo.git
+   git clone https://github.com/Cole-Dylewski/snowflake-terraform-demo.git
    cd snowflake-terraform-demo
+   git clone https://github.com/Cole-Dylewski/_utils
    ```
 
 2. **Set Up Environment Variables**
@@ -136,49 +151,59 @@ Follow these steps to get your development environment running:
      ```bash
      cp .env.example .env
      ```
+
    * Or run the helper script to generate and validate your `.env` file:
 
      ```bash
-      chmod +x setup.sh
-      ./setup.sh
+     chmod +x setup.sh
+     ./setup.sh
      ```
 
+   * Fill in any missing values when prompted.
 
-    * Fill in any missing values when prompted.
-    * The `.env` file is ignored by Git, so your secrets remain local.
+   * The `.env` file is ignored by Git, so your secrets remain local.
 
-3. **Build and Start Services**
-   Using Docker Compose:
+3. **Build and Start Services (Terraform)**
 
    ```bash
-   docker compose --env-file .env up -d --build
+   # From repo root
+   terraform -chdir=infra/docker init
+
+   # Apply using env map from .env
+   # Create a JSON tfvars file from .env, then use -var-file
+    awk -F= 'BEGIN{printf "{\n  \"env\": {"} NF==2 && $1 !~ /^[#]/ { gsub(/\r/, "", $2); gsub(/"/, "\\\"", $2); if(n++) printf ", "; printf "\n    \"%s\": \"%s\"", $1, $2 } END{printf "\n  }\n}\n"}' .env > /tmp/env.auto.tfvars.json
+    cat /tmp/env.auto.tfvars.json  # sanity check
+    terraform -chdir=infra/docker apply -auto-approve -var-file=/tmp/env.auto.tfvars.json
+
    ```
 
 4. **Verify Services Are Running**
-   Check container health and logs:
 
    ```bash
-   docker compose ps
-   docker compose logs -f
+   docker ps --format 'table {{.Names}}\t{{.Ports}}'
    ```
 
 5. **Access Services**
 
-   | Service      | URL / Port                                     |
-   | ------------ | ---------------------------------------------- |
-   | FastAPI      | [http://localhost:8000](http://localhost:8000) |
-   | Nginx Proxy  | [http://localhost](http://localhost)           |
-   | Source DB UI | [http://localhost:8081](http://localhost:8081) |
-   | Dest DB UI   | [http://localhost:8082](http://localhost:8082) |
-   | pgAdmin      | [http://localhost:8080](http://localhost:8080) |
+   | Service             | URL / Port                                         |
+   | ------------------- | -------------------------------------------------- |
+   | FastAPI (via nginx) | [http://localhost](http://localhost)               |
+   | Health Check        | [http://localhost/health](http://localhost/health) |
+   | Source DB UI        | [http://localhost:8081](http://localhost:8081)     |
+   | Dest DB UI          | [http://localhost:8082](http://localhost:8082)     |
+   | pgAdmin             | [http://localhost:8080](http://localhost:8080)     |
+   | Spark Master        | [http://localhost:9090](http://localhost:9090)     |
+   | Spark Worker        | [http://localhost:9091](http://localhost:9091)     |
+   | Spark History       | [http://localhost:18080](http://localhost:18080)   |
+   | JupyterLab          | [http://localhost:8889](http://localhost:8889)     |
 
 6. **Stop Services**
 
    ```bash
-   docker compose down
+   terraform -chdir=infra/docker destroy -auto-approve
    ```
 
----
+
 
 💡 Tip: For Terraform-managed environments, remember to run:
 
@@ -263,10 +288,12 @@ terraform -chdir=infra/docker init
 terraform -chdir=infra/docker plan
 
 # Create / update the environment
-terraform -chdir=infra/docker apply -auto-approve
+# Using JSON var-file built from .env (see Quick Start)
+terraform -chdir=infra/docker apply -auto-approve -var-file=/tmp/env.auto.tfvars.json
+
 
 # Create / update the environment with logs
-TF_LOG=INFO terraform -chdir=infra/docker apply -auto-approve
+TF_LOG=INFO terraform -chdir=infra/docker apply -auto-approve -var-file=/tmp/env.auto.tfvars.json
 docker logs -f nginx
 docker logs -f api
 
@@ -333,6 +360,12 @@ docker logs -f nginx
 * **pgAdmin**: [http://localhost:8080/](http://localhost:8080/)
 * **pgweb (source)**: [http://localhost:8081/](http://localhost:8081/)
 * **pgweb (destination)**: [http://localhost:8082/](http://localhost:8082/)
+* **Spark Master**: [http://localhost:9090/](http://localhost:9090/)
+* **Spark Worker-1**: [http://localhost:9091/](http://localhost:9091/)
+* **Spark History**: [http://localhost:18080/](http://localhost:18080/)
+* **JupyterLab**: [http://localhost:8889/](http://localhost:8889/)
+
+If you set a custom JUPYTER_TOKEN, the URL is http://localhost:8889/?token=<your-token>.
 
 **Direct Postgres** (from host):
 
@@ -362,6 +395,16 @@ Defaults live in `infra/docker/variables.tf` — override at apply-time with `-v
 | `http_port`        |                `80` | Host port for Nginx                                        |
 | `pgweb_src_port`   |              `8081` | Host port for pgweb (source)                               |
 | `pgweb_dst_port`   |              `8082` | Host port for pgweb (destination)                          |
+| `SPARK_WORKER_COUNT`   |   `1`   | Number of Spark workers               |
+| `SPARK_WORKER_CORES`   |   `2`   | Cores per worker                      |
+| `SPARK_WORKER_MEMORY`  |   `2g`  | Memory per worker                     |
+| `JUPYTER_PORT`         |  `8889` | Host port for JupyterLab              |
+| `JUPYTER_TOKEN`        |  `dev`  | Jupyter token (URL auth)              |
+| `SPARK_MASTER_PORT`    |  `7077` | Spark master RPC port                 |
+| `SPARK_MASTER_UI_PORT` |  `9090` | Spark master UI port                  |
+| `SPARK_WORKER_UI_BASE` |  `9091` | First worker UI port                  |
+| `SPARK_HISTORY_PORT`   | `18080` | History server UI port                |
+| `ENABLE_MINIO`         | `false` | Enable S3-compatible MinIO (optional) |
 
 **Examples:**
 
@@ -482,7 +525,7 @@ terraform -chdir=infra/docker apply -auto-approve
 
 ## Next Phases
 
-* **Phase Two:** Real data flows & background jobs (ETL/ELT) between source and destination.
+* **Phase Two:** Real data flows & background jobs (ETL/ELT) between source and destination. Alpaca/Kafka → Spark Structured Streaming → Snowflake
 * **Phase Three:** Harden for staging/prod: TLS (Caddy or Nginx + certs), authn/z, observability, backups.
 * **Snowflake Integration:** Extend the Terraform stack to provision Snowflake resources and wire an ingestion path.
 
