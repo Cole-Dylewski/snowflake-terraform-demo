@@ -64,20 +64,20 @@ infra/
 
 ```mermaid
 flowchart LR
-  Browser((Your Browser)) -->|:80/443| Nginx[Nginx]
+  Browser((Browser)) -->|80/443| Nginx[Nginx]
   Nginx -->|reverse proxy| API[FastAPI]
-  API -->|SQL| SRC_DB[(Postgres: src_db)]
-  API -->|SQL| DST_DB[(Postgres: dst_db)]
+  API -->|SQL| SRC_DB[(Postgres_src)]
+  API -->|SQL| DST_DB[(Postgres_dst)]
 
-  Browser -->|:8080| PGADMIN[pgAdmin]
-  Browser -->|:8081| PGWEB_SRC[pgweb (source)]
-  Browser -->|:8082| PGWEB_DST[pgweb (destination)]
-  Browser -->|:9090| SPARK_MASTER[Spark Master UI]
-  Browser -->|:9091| SPARK_WORKER[Spark Worker UI]
-  Browser -->|:18080| SPARK_HISTORY[Spark History]
-  Browser -->|:8889| JUPYTER[JupyterLab]
+  Browser -->|8080| PGADMIN[pgAdmin]
+  Browser -->|8081| PGWEB_SRC[pgweb_src]
+  Browser -->|8082| PGWEB_DST[pgweb_dst]
+  Browser -->|9090| SPARK_MASTER[Spark_Master_UI]
+  Browser -->|9091| SPARK_WORKER[Spark_Worker_UI]
+  Browser -->|18080| SPARK_HISTORY[Spark_History]
+  Browser -->|8889| JUPYTER[JupyterLab]
 
-  subgraph Docker Network: app_net
+  subgraph app_net
     Nginx
     API
     SRC_DB
