@@ -17,11 +17,11 @@ RUN python -m pip install --upgrade pip && \
 RUN pip install --no-cache-dir uvicorn[standard] watchfiles
 
 # NEW: bring in khepri_utils and install (choose one of the two lines)
-COPY khepri_utils /deps/khepri_utils
+COPY _utils /deps/_utils
 # Editable (handy for local development layers; mount will still override at runtime)
 # RUN pip install --no-cache-dir -e "/deps/khepri_utils[alpaca,aws,db,fastapi,ml,tableau]"
 # or non-editable (typical for prod images)
-RUN pip install --no-cache-dir "/deps/khepri_utils"
+RUN pip install --no-cache-dir "/deps/_utils"
 
 # CHANGED: copy the app from app/ since context is repo root
 COPY app /app

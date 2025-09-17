@@ -107,7 +107,7 @@ locals {
   app_dir    = abspath("${path.module}/../../app")
   req_hash   = filesha256("${local.app_dir}/requirements.txt")
   dockerfile = "${local.app_dir}/Dockerfile"
-  repo_root  = abspath("${path.module}/../..")            # NEW
+  repo_root  = abspath("${path.module}/../..") # NEW
 }
 
 # Build FastAPI image (deps baked in, req_hash forces rebuild on changes)
@@ -115,8 +115,8 @@ resource "docker_image" "api" {
   name = "demo-fastapi:local"
 
   build {
-    context    = local.repo_root            # CHANGED: was local.app_dir
-    dockerfile = "app/Dockerfile"           # CHANGED: path is relative to context
+    context    = local.repo_root  # CHANGED: was local.app_dir
+    dockerfile = "app/Dockerfile" # CHANGED: path is relative to context
     build_args = {
       REQ_HASH = local.req_hash
     }
@@ -303,4 +303,33 @@ resource "docker_container" "nginx" {
   ]
 
   restart = "always"
+}
+
+
+module "spark_cluster" {
+  source = "./spark"
+
+  # Reuse the same Docker network as the rest of the stack
+  network_name = "app_net"
+
+  # Plumb through .env via a map (use your existing pattern if you already load env)
+  env = {
+    SPARK_WORKER_COUNT  = try(var.env["SPARK_WORKER_COUNT"], "1")
+    SPARK_WORKER_CORES  = try(var.env["SPARK_WORKER_CORES"], "2")
+    SPARK_WORKER_MEMORY = try(var.env["SPARK_WORKER_MEMORY"], "2g")
+
+    JUPYTER_TOKEN = try(var.env["JUPYTER_TOKEN"], "dev")
+    JUPYTER_PORT  = try(var.env["JUPYTER_PORT"], "8889")
+
+    SPARK_MASTER_UI_PORT = try(var.env["SPARK_MASTER_UI_PORT"], "9090")
+    SPARK_MASTER_PORT    = try(var.env["SPARK_MASTER_PORT"], "7077")
+    SPARK_HISTORY_PORT   = try(var.env["SPARK_HISTORY_PORT"], "18080")
+    SPARK_WORKER_UI_BASE = try(var.env["SPARK_WORKER_UI_BASE"], "9091")
+
+    ENABLE_MINIO        = try(var.env["ENABLE_MINIO"], "false")
+    MINIO_ROOT_USER     = try(var.env["MINIO_ROOT_USER"], "admin")
+    MINIO_ROOT_PASSWORD = try(var.env["MINIO_ROOT_PASSWORD"], "admin12345")
+    MINIO_API_PORT      = try(var.env["MINIO_API_PORT"], "9000")
+    MINIO_CONSOLE_PORT  = try(var.env["MINIO_CONSOLE_PORT"], "9001")
+  }
 }

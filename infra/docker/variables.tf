@@ -63,3 +63,9 @@ variable "pgweb_dst_port" {
   type    = number
   default = 8082
 }
+
+variable "env" {
+  description = "Key-value map from .env"
+  type        = map(string)
+  default     = {}
+}
