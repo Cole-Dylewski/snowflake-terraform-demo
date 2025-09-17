@@ -28,7 +28,7 @@ COPY app /app
 
 EXPOSE 8000
 
-HEALTHCHECK --interval=10s --timeout=3s --retries=5 CMD \
+HEALTHCHECK --interval=90s --timeout=3s --retries=5 CMD \
   python -c "import urllib.request,sys; r=urllib.request.urlopen('http://127.0.0.1:8000/health',timeout=2); sys.exit(0 if r.getcode()==200 else 1)" || exit 1
 
 CMD ["uvicorn","main:app","--host","0.0.0.0","--port","8000"]
