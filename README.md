@@ -1,14 +1,26 @@
 # Snowflake Terraform Demo
 
-A portable, Terraform-managed dev environment that stands up:
+A portable, Terraform-managed development environment that stands up:
 
-* **FastAPI** app (hot reload for development)
+* **FastAPI** app (with hot reload for development)
 * **Nginx** reverse proxy (public entry on port 80 → FastAPI)
 * **Two PostgreSQL databases** (source & destination)
-* **pgAdmin** (DB admin UI) on port 8080
-* **pgweb** (simple DB web UIs) for source on 8081 and destination on 8082
+* **pgAdmin** (DB admin UI) on port **8080**
+* **pgweb** (lightweight DB web UI) for source on **8081** and destination on **8082**
+* **Apache Spark cluster** (master, workers, history server) on the shared Docker network
+  * Spark Master UI → **9090**
+  * Spark Worker UI → **9091**
+  * Spark History UI → **18080**
+* **JupyterLab (PySpark)** notebook environment on port **8889**
+* Optional **MinIO** object storage service (S3-compatible) on ports **9000/9001**
 
-> **Phase One status:** ✅ Complete — services run in Docker, managed by Terraform; routing verified.
+---
+
+## Phase One status
+✅ Complete — FastAPI, Nginx, Postgres, pgAdmin, and pgweb run in Docker, managed by Terraform; routing verified.
+
+## Phase Two status
+🚧 In progress — Spark + Jupyter cluster integrated; MinIO optional service available.
 
 ---
 
