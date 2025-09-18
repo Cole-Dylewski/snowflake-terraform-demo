@@ -9,3 +9,4 @@ variable "network_name" {
   type        = string
   default     = "app_net"
 }
+

@@ -30,9 +30,6 @@ locals {
 }
 
 # Reuse existing network by name
-data "docker_network" "app" {
-  name = var.network_name
-}
 
 resource "docker_volume" "spark_events" {
   name = "spark_events"
@@ -80,7 +77,7 @@ resource "docker_container" "spark_master" {
   }
 
   networks_advanced {
-    name = data.docker_network.app.name
+    name = var.network_name
   }
 
   mounts {
@@ -115,7 +112,7 @@ resource "docker_container" "spark_worker" {
   }
 
   networks_advanced {
-    name = data.docker_network.app.name
+    name = var.network_name
   }
 
   depends_on = [docker_container.spark_master]
@@ -137,7 +134,7 @@ resource "docker_container" "spark_history" {
   }
 
   networks_advanced {
-    name = data.docker_network.app.name
+    name = var.network_name
   }
 
   mounts {
@@ -165,7 +162,7 @@ resource "docker_container" "jupyter" {
   }
 
   networks_advanced {
-    name = data.docker_network.app.name
+    name = var.network_name
   }
 
   mounts {
@@ -206,7 +203,7 @@ resource "docker_container" "minio" {
   }
 
   networks_advanced {
-    name = data.docker_network.app.name
+    name = var.network_name
   }
 
   mounts {

@@ -307,10 +307,10 @@ resource "docker_container" "nginx" {
 
 
 module "spark_cluster" {
-  source = "./spark"
+  source       = "./spark"
+  network_name = docker_network.app_net.name
 
   # Reuse the same Docker network as the rest of the stack
-  network_name = "app_net"
 
   # Plumb through .env via a map (use your existing pattern if you already load env)
   env = {
