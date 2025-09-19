@@ -333,3 +333,9 @@ module "spark_cluster" {
     MINIO_CONSOLE_PORT  = try(var.env["MINIO_CONSOLE_PORT"], "9001")
   }
 }
+module "kafka" {
+  source       = "./kafka"
+  network_name = docker_network.app_net.name
+
+  depends_on = [docker_network.app_net]
+}
