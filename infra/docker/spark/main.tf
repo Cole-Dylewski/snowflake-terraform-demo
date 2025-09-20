@@ -29,8 +29,7 @@ locals {
   }
 }
 
-# Reuse existing network by name
-
+# Volumes
 resource "docker_volume" "spark_events" {
   name = "spark_events"
 }
@@ -44,7 +43,7 @@ resource "docker_volume" "minio_data" {
   name = "minio_data"
 }
 
-# Multi-arch images (works on Raspberry Pi)
+# Images
 resource "docker_image" "spark" {
   name = "bitnami/spark:3.5.1-debian-12-r8"
 }
@@ -102,7 +101,6 @@ resource "docker_container" "spark_worker" {
     "SPARK_LOG_LEVEL=INFO"
   ]
 
-  # expose UI for the first worker only
   dynamic "ports" {
     for_each = count.index == 0 ? [1] : []
     content {
@@ -118,17 +116,16 @@ resource "docker_container" "spark_worker" {
   depends_on = [docker_container.spark_master]
 }
 
-# Spark History Server (foreground)
+# Spark History Server (fix perms as root, then start)
 resource "docker_container" "spark_history" {
   name    = "spark-history"
   image   = docker_image.spark.image_id
   restart = "unless-stopped"
+  user    = "0:0"
 
-  # Run HistoryServer in the foreground via bash -lc with a single string
   entrypoint = ["/bin/bash", "-lc"]
-  command    = ["mkdir -p /opt/bitnami/spark/tmp/spark-events && chmod 0777 /opt/bitnami/spark/tmp/spark-events && exec /opt/bitnami/spark/bin/spark-class org.apache.spark.deploy.history.HistoryServer"]
+  command    = ["mkdir -p /opt/bitnami/spark/tmp/spark-events && chown -R 1001:0 /opt/bitnami/spark/tmp/spark-events && chmod 0777 /opt/bitnami/spark/tmp/spark-events && exec /opt/bitnami/spark/bin/spark-class org.apache.spark.deploy.history.HistoryServer"]
 
-  # Configure log dir + UI port
   env = [
     "SPARK_HISTORY_OPTS=-Dspark.history.fs.logDirectory=file:/opt/bitnami/spark/tmp/spark-events -Dspark.history.ui.port=${local.cfg.SPARK_HISTORY_PORT}"
   ]
@@ -138,21 +135,21 @@ resource "docker_container" "spark_history" {
     external = local.cfg.SPARK_HISTORY_PORT
   }
 
-  networks_advanced { name = var.network_name }
+  networks_advanced {
+    name = var.network_name
+  }
 
   mounts {
     target = "/opt/bitnami/spark/tmp/spark-events"
     type   = "volume"
     source = docker_volume.spark_events.name
   }
-  # Additional mount path (same volume) if you want a shorter alias inside
   mounts {
     target = "/event-logs"
     type   = "volume"
     source = docker_volume.spark_events.name
   }
 
-  # Basic TCP healthcheck on 18080
   healthcheck {
     test         = ["CMD-SHELL", "bash -lc 'exec 3<>/dev/tcp/127.0.0.1/${local.cfg.SPARK_HISTORY_PORT}'"]
     interval     = "10s"
@@ -164,22 +161,19 @@ resource "docker_container" "spark_history" {
   depends_on = [docker_container.spark_master, docker_container.spark_worker]
 }
 
-# JupyterLab (PySpark)
+# JupyterLab (PySpark) – writes event logs into the same volume
 resource "docker_container" "jupyter" {
   name  = "jupyterlab"
   image = docker_image.jupyter.image_id
 
-  mounts {
-    target = "/opt/bitnami/spark/tmp/spark-events"
-    type   = "volume"
-    source = docker_volume.spark_events.name
-  }
+  
 
-  # Enable event logs from notebook drivers
   env = [
     "JUPYTER_TOKEN=${local.cfg.JUPYTER_TOKEN}",
     "SPARK_MASTER=spark://spark-master:${local.cfg.SPARK_MASTER_PORT}",
-    "PYSPARK_SUBMIT_ARGS=--conf spark.eventLog.enabled=true --conf spark.eventLog.dir=file:/opt/bitnami/spark/tmp/spark-events pyspark-shell"
+    "PYSPARK_SUBMIT_ARGS=--conf spark.eventLog.enabled=true --conf spark.eventLog.dir=file:/opt/bitnami/spark/tmp/spark-events pyspark-shell",
+    "NB_UID=1001",
+    "NB_GID=0"
   ]
 
   ports {
@@ -190,7 +184,11 @@ resource "docker_container" "jupyter" {
   networks_advanced {
     name = var.network_name
   }
-
+  mounts {
+    target = "/opt/bitnami/spark/tmp/spark-events"
+    type   = "volume"
+    source = docker_volume.spark_events.name
+  }
   mounts {
     target = "/home/jovyan/work"
     type   = "volume"
@@ -201,14 +199,26 @@ resource "docker_container" "jupyter" {
     type   = "volume"
     source = docker_volume.jupyter_home.name
   }
-
   mounts {
     target = "/event-logs"
     type   = "volume"
     source = docker_volume.spark_events.name
   }
 
-  command = ["start-notebook.sh"]
+  mounts {
+  type      = "bind"
+  source    = abspath("${path.root}/../../requirements-jupyter.txt")
+  target    = "/tmp/requirements.txt"
+  read_only = true
+}
+
+
+
+  command = [
+    "bash","-lc",
+    "if [ -f /tmp/requirements.txt ]; then pip install -r /tmp/requirements.txt; fi; exec start-notebook.sh"
+  ]
+
 
   depends_on = [docker_container.spark_master]
 }

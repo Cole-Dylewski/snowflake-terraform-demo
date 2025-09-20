@@ -1,224 +1,238 @@
-#!/usr/bin/env python3
-import argparse, json, subprocess, sys
-from pathlib import Path
-
-import requests
-
-DEFAULTS = {
-    "host": "localhost",
-
-    # nginx front door (kept around, but DB UIs tested by port now)
-    "http_port": 80,
-
-    # direct service ports
-    "api_port": 8000,
-    "redpanda_admin_port": 9644,
-    "redpanda_console_port": 8085,
-    "spark_master_ui": 9090,
-    "spark_worker_ui": 9091,
-    "spark_history_ui": 18080,
-    "jupyter_port": 8889,
-    "minio_api_port": 9000,
-    "minio_console_port": 9001,
-
-    # pgweb & pgadmin via ports (NOT via /src or /dest)
-    "pgweb_src_port": None,   # will try tfvars first, then docker
-    "pgweb_dst_port": None,
-    "pgadmin_port": None,
-
-    # feature toggles
-    "enable_minio": False,
+{
+ "cells": [
+  {
+   "cell_type": "code",
+   "execution_count": 1,
+   "id": "9cbb51e4",
+   "metadata": {},
+   "outputs": [
+    {
+     "name": "stderr",
+     "output_type": "stream",
+     "text": [
+      "usage: ipykernel_launcher.py [-h] [--host HOST] [--stack-dir STACK_DIR]\n",
+      "                             [--tfvars TFVARS] [--no-tf-outputs]\n",
+      "                             [--timeout TIMEOUT]\n",
+      "ipykernel_launcher.py: error: unrecognized arguments: --f=/run/user/1000/jupyter/runtime/kernel-v33184755ab80b6ea93a3df6b0a0e8923c8a94be04.json\n"
+     ]
+    },
+    {
+     "ename": "SystemExit",
+     "evalue": "2",
+     "output_type": "error",
+     "traceback": [
+      "An exception has occurred, use %tb to see the full traceback.\n",
+      "\u001b[31mSystemExit\u001b[39m\u001b[31m:\u001b[39m 2\n"
+     ]
+    },
+    {
+     "name": "stderr",
+     "output_type": "stream",
+     "text": [
+      "/home/coled/Documents/Code/snowflake-terraform-demo/.venv/lib/python3.13/site-packages/IPython/core/interactiveshell.py:3707: UserWarning: To exit: use 'exit', 'quit', or Ctrl-D.\n",
+      "  warn(\"To exit: use 'exit', 'quit', or Ctrl-D.\", stacklevel=1)\n"
+     ]
+    }
+   ],
+   "source": [
+    "#!/usr/bin/env python3\n",
+    "import argparse, json, subprocess, sys, time\n",
+    "from pathlib import Path\n",
+    "\n",
+    "import requests\n",
+    "\n",
+    "DEFAULTS = {\n",
+    "    # host\n",
+    "    \"host\": \"localhost\",\n",
+    "\n",
+    "    # nginx reverse-proxy (http only)\n",
+    "    \"http_port\": 80,\n",
+    "\n",
+    "    # app pieces behind nginx\n",
+    "    \"paths\": {\n",
+    "        \"App root\": \"/\",\n",
+    "        \"Source DB UI (pgweb)\": \"/src/\",\n",
+    "        \"Destination DB UI (pgweb)\": \"/dest/\",\n",
+    "        \"pgAdmin\": \"/pg/\",\n",
+    "    },\n",
+    "\n",
+    "    # direct services\n",
+    "    \"api_port\": 8000,                     # FastAPI (direct)\n",
+    "    \"redpanda_admin_port\": 9644,          # Redpanda Admin API\n",
+    "    \"redpanda_console_port\": 8085,        # Redpanda Console (host → container:8080)\n",
+    "    \"spark_master_ui\": 9090,              # Spark Master UI\n",
+    "    \"spark_worker_ui\": 9091,              # First worker UI\n",
+    "    \"spark_history_ui\": 18080,            # Spark History UI (if enabled)\n",
+    "    \"jupyter_port\": 8889,                 # JupyterLab (token-protected, we just check reachability)\n",
+    "    \"minio_api_port\": 9000,               # Optional\n",
+    "    \"minio_console_port\": 9001,           # Optional\n",
+    "}\n",
+    "\n",
+    "def load_tfvars_json(path: Path):\n",
+    "    try:\n",
+    "        with path.open() as f:\n",
+    "            return json.load(f)\n",
+    "    except Exception:\n",
+    "        return {}\n",
+    "\n",
+    "def maybe_int(x, default):\n",
+    "    try:\n",
+    "        return int(x)\n",
+    "    except Exception:\n",
+    "        return default\n",
+    "\n",
+    "def merge_from_tfvars(d, tfvars):\n",
+    "    # Root vars\n",
+    "    d[\"http_port\"] = maybe_int(tfvars.get(\"http_port\", d[\"http_port\"]), d[\"http_port\"])\n",
+    "    d[\"api_port\"] = maybe_int(tfvars.get(\"api_port\", d[\"api_port\"]), d[\"api_port\"])\n",
+    "    d[\"redpanda_console_port\"] = maybe_int(tfvars.get(\"console_port\", d[\"redpanda_console_port\"]), d[\"redpanda_console_port\"])\n",
+    "    d[\"redpanda_admin_port\"] = maybe_int(tfvars.get(\"admin_port\", d[\"redpanda_admin_port\"]), d[\"redpanda_admin_port\"])\n",
+    "    # Spark env (passed into module as strings)\n",
+    "    env = tfvars.get(\"env\", {})\n",
+    "    d[\"spark_master_ui\"]  = maybe_int(env.get(\"SPARK_MASTER_UI_PORT\", d[\"spark_master_ui\"]), d[\"spark_master_ui\"])\n",
+    "    d[\"spark_worker_ui\"]  = maybe_int(env.get(\"SPARK_WORKER_UI_BASE\", d[\"spark_worker_ui\"]), d[\"spark_worker_ui\"])\n",
+    "    d[\"spark_history_ui\"] = maybe_int(env.get(\"SPARK_HISTORY_PORT\", d[\"spark_history_ui\"]), d[\"spark_history_ui\"])\n",
+    "    d[\"jupyter_port\"]     = maybe_int(env.get(\"JUPYTER_PORT\", d[\"jupyter_port\"]), d[\"jupyter_port\"])\n",
+    "    # MinIO toggles\n",
+    "    enable_minio = str(env.get(\"ENABLE_MINIO\", \"false\")).lower() == \"true\"\n",
+    "    d[\"enable_minio\"] = enable_minio\n",
+    "    d[\"minio_api_port\"] = maybe_int(env.get(\"MINIO_API_PORT\", d[\"minio_api_port\"]), d[\"minio_api_port\"])\n",
+    "    d[\"minio_console_port\"] = maybe_int(env.get(\"MINIO_CONSOLE_PORT\", d[\"minio_console_port\"]), d[\"minio_console_port\"])\n",
+    "    return d\n",
+    "\n",
+    "def collect_urls(cfg, stack_dir: Path, include_tf_outputs: bool):\n",
+    "    host = cfg[\"host\"]\n",
+    "    urls = []\n",
+    "\n",
+    "    # Nginx front door and proxied apps\n",
+    "    base = f\"http://{host}:{cfg['http_port']}\" if cfg['http_port'] not in (80, None) else f\"http://{host}\"\n",
+    "    for name, path in cfg[\"paths\"].items():\n",
+    "        u = base.rstrip(\"/\") + path\n",
+    "        urls.append((name, u, {}))\n",
+    "\n",
+    "    # Direct services\n",
+    "    urls += [\n",
+    "        (\"FastAPI (direct)\",             f\"http://{host}:{cfg['api_port']}\", {}),\n",
+    "        (\"Redpanda Admin /ready\",        f\"http://{host}:{cfg['redpanda_admin_port']}/v1/status/ready\", {\"expect_json\": {\"status\": \"ready\"}}),\n",
+    "        (\"Redpanda Console\",             f\"http://{host}:{cfg['redpanda_console_port']}\", {}),\n",
+    "        (\"Spark Master UI\",              f\"http://{host}:{cfg['spark_master_ui']}\", {}),\n",
+    "        (\"Spark Worker-1 UI\",            f\"http://{host}:{cfg['spark_worker_ui']}\", {}),\n",
+    "        (\"Spark History UI\",             f\"http://{host}:{cfg['spark_history_ui']}\", {}),\n",
+    "        (\"JupyterLab\",                   f\"http://{host}:{cfg['jupyter_port']}\", {}),\n",
+    "    ]\n",
+    "\n",
+    "    if cfg.get(\"enable_minio\"):\n",
+    "        urls += [\n",
+    "            (\"MinIO API (S3)\",           f\"http://{host}:{cfg['minio_api_port']}\", {}),\n",
+    "            (\"MinIO Console\",            f\"http://{host}:{cfg['minio_console_port']}\", {}),\n",
+    "        ]\n",
+    "\n",
+    "    # Terraform outputs (any strings that look like URLs)\n",
+    "    if include_tf_outputs:\n",
+    "        try:\n",
+    "            out = subprocess.run(\n",
+    "                [\"terraform\", \"-chdir=\" + str(stack_dir), \"output\", \"-json\"],\n",
+    "                check=True, capture_output=True, text=True\n",
+    "            )\n",
+    "            j = json.loads(out.stdout or \"{}\")\n",
+    "            for k, v in j.items():\n",
+    "                val = v.get(\"value\") if isinstance(v, dict) else v\n",
+    "                if isinstance(val, str) and (\"http://\" in val or \"https://\" in val):\n",
+    "                    urls.append((f\"TF output: {k}\", val, {}))\n",
+    "        except Exception:\n",
+    "            pass\n",
+    "\n",
+    "    # de-dupe by URL\n",
+    "    seen = set()\n",
+    "    uniq = []\n",
+    "    for name, u, opts in urls:\n",
+    "        if u not in seen:\n",
+    "            uniq.append((name, u, opts))\n",
+    "            seen.add(u)\n",
+    "    return uniq\n",
+    "\n",
+    "def check(url, opts, timeout):\n",
+    "    try:\n",
+    "        r = requests.get(url, timeout=timeout, allow_redirects=True, verify=False)\n",
+    "        status = r.status_code\n",
+    "        ok = status < 400\n",
+    "        msg = f\"{status}\"\n",
+    "        if opts.get(\"expect_json\"):\n",
+    "            ok_json = False\n",
+    "            try:\n",
+    "                data = r.json()\n",
+    "                exp = opts[\"expect_json\"]\n",
+    "                ok_json = all(data.get(k) == v for k, v in exp.items())\n",
+    "                msg += f\", json {exp} {'ok' if ok_json else 'mismatch'}\"\n",
+    "                ok = ok and ok_json\n",
+    "            except Exception as e:\n",
+    "                ok = False\n",
+    "                msg += f\", json parse error: {e}\"\n",
+    "        return ok, msg\n",
+    "    except requests.exceptions.RequestException as e:\n",
+    "        return False, f\"ERR {type(e).__name__}: {e}\"\n",
+    "\n",
+    "def main():\n",
+    "    ap = argparse.ArgumentParser(description=\"Probe all service URLs in the stack.\")\n",
+    "    ap.add_argument(\"--host\", default=DEFAULTS[\"host\"], help=\"Host to test against (default: localhost)\")\n",
+    "    ap.add_argument(\"--stack-dir\", default=\"infra/docker\", help=\"Terraform stack dir (default: infra/docker)\")\n",
+    "    ap.add_argument(\"--tfvars\", help=\"Path to env.auto.tfvars.json (optional)\")\n",
+    "    ap.add_argument(\"--no-tf-outputs\", action=\"store_true\", help=\"Skip reading terraform output -json\")\n",
+    "    ap.add_argument(\"--timeout\", type=float, default=5.0, help=\"Per-request timeout seconds (default: 5)\")\n",
+    "    args = ap.parse_args()\n",
+    "\n",
+    "    cfg = DEFAULTS.copy()\n",
+    "    cfg[\"host\"] = args.host\n",
+    "\n",
+    "    # Merge from tfvars JSON if provided\n",
+    "    if args.tfvars:\n",
+    "        tfvars = load_tfvars_json(Path(args.tfvars))\n",
+    "        cfg = merge_from_tfvars(cfg, tfvars)\n",
+    "\n",
+    "    urls = collect_urls(cfg, Path(args.stack_dir), include_tf_outputs=(not args.no_tf_outputs))\n",
+    "\n",
+    "    print(f\"\\nTesting {len(urls)} endpoints (timeout={args.timeout}s):\\n\")\n",
+    "    width = max(len(name) for name, _, _ in urls) + 2\n",
+    "    failures = 0\n",
+    "\n",
+    "    for name, url, opts in urls:\n",
+    "        ok, msg = check(url, opts, args.timeout)\n",
+    "        status = \"PASS\" if ok else \"FAIL\"\n",
+    "        if not ok:\n",
+    "            failures += 1\n",
+    "        print(f\"{status:<5} {name:<{width}} {url}    {msg}\")\n",
+    "\n",
+    "    print(\"\\nDone.\")\n",
+    "    if failures:\n",
+    "        print(f\"{failures} endpoint(s) failed.\")\n",
+    "        sys.exit(1)\n",
+    "\n",
+    "if __name__ == \"__main__\":\n",
+    "    # be nice to terminals with old cert stores\n",
+    "    requests.packages.urllib3.disable_warnings()  # type: ignore\n",
+    "    main()\n"
+   ]
+  }
+ ],
+ "metadata": {
+  "kernelspec": {
+   "display_name": ".venv",
+   "language": "python",
+   "name": "python3"
+  },
+  "language_info": {
+   "codemirror_mode": {
+    "name": "ipython",
+    "version": 3
+   },
+   "file_extension": ".py",
+   "mimetype": "text/x-python",
+   "name": "python",
+   "nbconvert_exporter": "python",
+   "pygments_lexer": "ipython3",
+   "version": "3.13.7"
+  }
+ },
+ "nbformat": 4,
+ "nbformat_minor": 5
 }
-
-def load_json(path: Path):
-    try:
-        with path.open() as f:
-            return json.load(f)
-    except Exception:
-        return {}
-
-def maybe_int(v, default=None):
-    try:
-        return int(v)
-    except Exception:
-        return default
-
-def merge_from_tfvars(d, tfvars):
-    # root-level ports
-    d["http_port"] = maybe_int(tfvars.get("http_port", d["http_port"]), d["http_port"])
-    d["api_port"] = maybe_int(tfvars.get("api_port", d["api_port"]), d["api_port"])
-    d["redpanda_console_port"] = maybe_int(tfvars.get("console_port", d["redpanda_console_port"]), d["redpanda_console_port"])
-    d["redpanda_admin_port"] = maybe_int(tfvars.get("admin_port", d["redpanda_admin_port"]), d["redpanda_admin_port"])
-
-    # pgweb / pgadmin by port
-    d["pgweb_src_port"] = maybe_int(tfvars.get("pgweb_src_port", d["pgweb_src_port"]), d["pgweb_src_port"])
-    d["pgweb_dst_port"] = maybe_int(tfvars.get("pgweb_dst_port", d["pgweb_dst_port"]), d["pgweb_dst_port"])
-    d["pgadmin_port"]   = maybe_int(tfvars.get("pgadmin_port", d["pgadmin_port"]), d["pgadmin_port"])
-
-    # Spark & friends from env map (strings)
-    env = tfvars.get("env", {})
-    d["spark_master_ui"]  = maybe_int(env.get("SPARK_MASTER_UI_PORT", d["spark_master_ui"]), d["spark_master_ui"])
-    d["spark_worker_ui"]  = maybe_int(env.get("SPARK_WORKER_UI_BASE", d["spark_worker_ui"]), d["spark_worker_ui"])
-    d["spark_history_ui"] = maybe_int(env.get("SPARK_HISTORY_PORT", d["spark_history_ui"]), d["spark_history_ui"])
-    d["jupyter_port"]     = maybe_int(env.get("JUPYTER_PORT", d["jupyter_port"]), d["jupyter_port"])
-
-    # MinIO
-    d["enable_minio"] = str(env.get("ENABLE_MINIO", "false")).lower() == "true"
-    d["minio_api_port"] = maybe_int(env.get("MINIO_API_PORT", d["minio_api_port"]), d["minio_api_port"])
-    d["minio_console_port"] = maybe_int(env.get("MINIO_CONSOLE_PORT", d["minio_console_port"]), d["minio_console_port"])
-    return d
-
-def docker_discover_port(container: str, internal_port: int):
-    """Return host port for container's tcp port, or None."""
-    try:
-        out = subprocess.run(
-            ["docker", "port", container, f"{internal_port}/tcp"],
-            check=True, capture_output=True, text=True
-        ).stdout.strip()
-        # examples: "0.0.0.0:8082" or "[::]:8082"
-        if not out:
-            return None
-        last = out.splitlines()[-1].split(":")[-1]
-        return int(last)
-    except Exception:
-        return None
-
-def collect_urls(cfg, stack_dir: Path, include_tf_outputs: bool, include_nginx_root: bool):
-    host = cfg["host"]
-    urls = []
-
-    # (optional) nginx root (not /src or /dest anymore)
-    if include_nginx_root:
-        if cfg["http_port"] in (80, None):
-            urls.append(("Nginx root", f"http://{host}", {}))
-        else:
-            urls.append(("Nginx root", f"http://{host}:{cfg['http_port']}", {}))
-
-    # direct services
-    urls += [
-        ("FastAPI (direct)",        f"http://{host}:{cfg['api_port']}", {}),
-        ("Redpanda Admin /ready",   f"http://{host}:{cfg['redpanda_admin_port']}/v1/status/ready", {"expect_json": {"status": "ready"}}),
-        ("Redpanda Console",        f"http://{host}:{cfg['redpanda_console_port']}", {}),
-        ("Spark Master UI",         f"http://{host}:{cfg['spark_master_ui']}", {}),
-        ("Spark Worker-1 UI",       f"http://{host}:{cfg['spark_worker_ui']}", {}),
-        ("Spark History UI",        f"http://{host}:{cfg['spark_history_ui']}", {}),
-        ("JupyterLab",              f"http://{host}:{cfg['jupyter_port']}", {}),
-    ]
-
-    # pgweb & pgadmin by port
-    if cfg.get("pgweb_src_port"):
-        urls.append(("pgweb (source)", f"http://{host}:{cfg['pgweb_src_port']}", {}))
-    if cfg.get("pgweb_dst_port"):
-        urls.append(("pgweb (destination)", f"http://{host}:{cfg['pgweb_dst_port']}", {}))
-    if cfg.get("pgadmin_port"):
-        urls.append(("pgAdmin (direct)", f"http://{host}:{cfg['pgadmin_port']}", {}))
-
-    if cfg.get("enable_minio"):
-        urls += [
-            ("MinIO API (S3)",      f"http://{host}:{cfg['minio_api_port']}", {}),
-            ("MinIO Console",       f"http://{host}:{cfg['minio_console_port']}", {}),
-        ]
-
-    # Terraform outputs that look like URLs
-    if include_tf_outputs:
-        try:
-            out = subprocess.run(
-                ["terraform", "-chdir=" + str(stack_dir), "output", "-json"],
-                check=True, capture_output=True, text=True
-            )
-            j = json.loads(out.stdout or "{}")
-            for k, v in j.items():
-                val = v.get("value") if isinstance(v, dict) else v
-                if isinstance(val, str) and ("http://" in val or "https://" in val):
-                    urls.append((f"TF output: {k}", val, {}))
-        except Exception:
-            pass
-
-    # de-dupe by URL
-    seen, uniq = set(), []
-    for name, u, opts in urls:
-        if u not in seen:
-            uniq.append((name, u, opts))
-            seen.add(u)
-    return uniq
-
-def check(url, opts, timeout):
-    try:
-        r = requests.get(url, timeout=timeout, allow_redirects=True, verify=False)
-        ok, msg = r.status_code < 400, f"{r.status_code}"
-        if opts.get("expect_json"):
-            want = opts["expect_json"]
-            try:
-                data = r.json()
-                ok_json = all(data.get(k) == v for k, v in want.items())
-                ok = ok and ok_json
-                msg += f", json {want} {'ok' if ok_json else 'mismatch'}"
-            except Exception as e:
-                ok = False
-                msg += f", json parse error: {e}"
-        return ok, msg
-    except requests.exceptions.RequestException as e:
-        return False, f"ERR {type(e).__name__}: {e}"
-
-def main():
-    ap = argparse.ArgumentParser(description="Probe all service URLs in the stack (ports for DB UIs).")
-    ap.add_argument("--host", default=DEFAULTS["host"])
-    ap.add_argument("--stack-dir", default="infra/docker")
-    ap.add_argument("--tfvars", help="Path to env.auto.tfvars.json (optional)")
-    ap.add_argument("--no-tf-outputs", action="store_true", help="Skip terraform output -json")
-    ap.add_argument("--no-nginx-root", action="store_true", help="Skip testing http://host[:port]")
-    ap.add_argument("--timeout", type=float, default=5.0)
-    ap.add_argument("--docker-discover", action="store_true",
-                    help="If pgweb/pgadmin ports missing, try docker port pgweb_src 8081/tcp etc.")
-    args = ap.parse_args()
-
-    cfg = DEFAULTS.copy()
-    cfg["host"] = args.host
-
-    if args.tfvars:
-        cfg = merge_from_tfvars(cfg, load_json(Path(args.tfvars)))
-
-    # Optional docker discovery for pgweb/pgadmin if not in tfvars
-    if args.docker_discover:
-        if not cfg.get("pgweb_src_port"):
-            cfg["pgweb_src_port"] = docker_discover_port("pgweb_src", 8081)
-        if not cfg.get("pgweb_dst_port"):
-            cfg["pgweb_dst_port"] = docker_discover_port("pgweb_dst", 8081)
-        if not cfg.get("pgadmin_port"):
-            cfg["pgadmin_port"] = docker_discover_port("pgadmin", 80)
-
-        # Also discover Redpanda Console if needed
-        if not cfg.get("redpanda_console_port"):
-            cfg["redpanda_console_port"] = docker_discover_port("redpanda-console", 8080)
-        if not cfg.get("redpanda_admin_port"):
-            cfg["redpanda_admin_port"] = docker_discover_port("redpanda", 9644)
-
-    urls = collect_urls(
-        cfg,
-        Path(args.stack_dir),
-        include_tf_outputs=(not args.no_tf_outputs),
-        include_nginx_root=(not args.no_nginx_root),
-    )
-
-    print(f"\nTesting {len(urls)} endpoints (timeout={args.timeout}s):\n")
-    width = max(len(name) for name, _, _ in urls) + 2
-    failures = 0
-
-    for name, url, opts in urls:
-        ok, msg = check(url, opts, args.timeout)
-        status = "PASS" if ok else "FAIL"
-        if not ok:
-            failures += 1
-        print(f"{status:<5} {name:<{width}} {url}    {msg}")
-
-    print("\nDone.")
-    if failures:
-        print(f"{failures} endpoint(s) failed.")
-        sys.exit(1)
-
-if __name__ == "__main__":
-    # quiet SSL warnings for local HTTP
-    requests.packages.urllib3.disable_warnings()  # type: ignore
-    main()
-
-

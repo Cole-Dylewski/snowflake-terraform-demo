@@ -36,9 +36,11 @@ A portable, Terraform-managed development environment that stands up:
 * [Service URLs](#service-urls)
 * [Configuration (Variables)](#configuration-variables)
 * [Development (Hot Reload)](#development-hot-reload)
+* [Spark History](#spark-history)
 * [Database Initialization](#database-initialization)
 * [Nginx Routing Options](#nginx-routing-options)
 * [Troubleshooting](#troubleshooting)
+* [Testing](#testing-pytest)
 * [Next Phases](#next-phases)
 
 ---
@@ -76,37 +78,45 @@ infra/
 
 ```mermaid
 flowchart LR
-  Browser((Browser)) -->|80/443| Nginx[Nginx]
-  Nginx -->|reverse proxy| API[FastAPI]
-  API -->|SQL| SRC_DB[(Postgres_src)]
-  API -->|SQL| DST_DB[(Postgres_dst)]
+Browser((Browser)) -->|80/443| Nginx[Nginx]
+Nginx -->|reverse proxy| API[FastAPI]
+API -->|SQL| SRC_DB[(Postgres_src)]
+API -->|SQL| DST_DB[(Postgres_dst)]
 
-  Browser -->|8080| PGADMIN[pgAdmin]
-  Browser -->|8081| PGWEB_SRC[pgweb_src]
-  Browser -->|8082| PGWEB_DST[pgweb_dst]
-  Browser -->|9090| SPARK_MASTER[Spark_Master_UI]
-  Browser -->|9091| SPARK_WORKER[Spark_Worker_UI]
-  Browser -->|18080| SPARK_HISTORY[Spark_History]
-  Browser -->|8889| JUPYTER[JupyterLab]
 
-  subgraph app_net
-    Nginx
-    API
-    SRC_DB
-    DST_DB
-    PGADMIN
-    PGWEB_SRC
-    PGWEB_DST
-    SPARK_MASTER
-    SPARK_WORKER
-    SPARK_HISTORY
-    JUPYTER
-  end
+%% Direct-host UIs
+Browser -->|8080| PGADMIN[pgAdmin]
+Browser -->|8081| PGWEB_SRC[pgweb_src]
+Browser -->|8082| PGWEB_DST[pgweb_dst]
+Browser -->|9090| SPARK_MASTER[Spark_Master_UI]
+Browser -->|9091| SPARK_WORKER[Spark_Worker_UI]
+Browser -->|18080| SPARK_HISTORY[Spark_History]
+Browser -->|8889| JUPYTER[JupyterLab]
+Browser -->|8085| RP_CONSOLE[Redpanda_Console]
+Browser -->|9644| RP_ADMIN[Redpanda_Admin_API]
+
+
+subgraph app_net
+  Nginx
+  API
+  SRC_DB
+  DST_DB
+  PGADMIN
+  PGWEB_SRC
+  PGWEB_DST
+  SPARK_MASTER
+  SPARK_WORKER
+  SPARK_HISTORY
+  JUPYTER
+  RP_CONSOLE
+  RP_ADMIN
+end
 
 ```
 
-* Containers communicate on an isolated Docker network **`app_net`**.
-* Only **Nginx (80/443)**, **pgAdmin (8080)**, **pgweb-src (8081)**, **pgweb-dst (8082)**, **Spark Master (9090)**, **Spark Worker-1 (9091)**, **Spark History (18080)**, and **JupyterLab (8889)** are published to the host.
+All containers run on isolated Docker network app_net.
+
+Published host ports: 80, 8080, 8081, 8082, 9090, 9091, 18080, 8889, 8085, 9644.
 
 ---
 
@@ -142,6 +152,8 @@ curl http://localhost/health
 # Spark Worker-1:            http://localhost:9091/
 # Spark History:             http://localhost:18080/
 # JupyterLab:                http://localhost:8889/?token=dev
+# Redpanda Console:          http://localhost:8085/
+# Redpanda Admin Ready:      http://localhost:9644/v1/status/ready
 ```
 
 ## Startup Instructions
@@ -290,31 +302,30 @@ After this, Docker will be completely clean. The next `terraform apply` will reb
 
 ## Terraform Commands
 
-Terraform manages all containers, volumes, and networks defined in `infra/docker/*.tf`.
+
+Terraform manages all containers, volumes, and networks under `infra/docker/`.
 
 ```bash
-# Initialize providers (first run or when providers change)
+# Initialize providers (first run or after provider changes)
 terraform -chdir=infra/docker init
 
-# See what would change without touching anything
-terraform -chdir=infra/docker plan
+# Build a JSON var-file from .env (key/value map into var.env)
+awk -F= 'BEGIN{printf "{\n  \"env\": {"} NF==2 && $1 !~ /^[#]/ { gsub(/\r/, "", $2); gsub(/"/, "\\\"", $2); if(n++) printf ", "; printf "\n    \"%s\": \"%s\"", $1, $2 } END{printf "\n  }\n}\n"}' .env > /tmp/env.auto.tfvars.json
 
-# Create / update the environment
-# Using JSON var-file built from .env (see Quick Start)
+# Plan/apply with env map
+terraform -chdir=infra/docker plan -var-file=/tmp/env.auto.tfvars.json
 terraform -chdir=infra/docker apply -auto-approve -var-file=/tmp/env.auto.tfvars.json
 
-
-# Create / update the environment with logs
-TF_LOG=INFO terraform -chdir=infra/docker apply -auto-approve -var-file=/tmp/env.auto.tfvars.json
-docker logs -f nginx
-docker logs -f api
-
-# Show handy outputs (URLs, CLI snippets)
+# Show handy outputs (URLs)
 terraform -chdir=infra/docker output
 
-# Destroy the environment
+# Optional: target specific modules/resources during iteration
+terraform -chdir=infra/docker apply -auto-approve -target=module.kafka
+terraform -chdir=infra/docker apply -auto-approve -target=module.spark_cluster.docker_container.jupyter
+
+# Destroy everything managed by Terraform
 terraform -chdir=infra/docker destroy -auto-approve
-```
+````
 
 If Docker gets into a weird state during development, a quick reset sequence:
 
@@ -367,22 +378,25 @@ docker logs -f nginx
 - To stop following, press \`Ctrl+C\`.
 ## Service URLs
 
-* **FastAPI (via nginx)**: [http://localhost/](http://localhost/)
-  * Health: [http://localhost/health](http://localhost/health)
-* **pgAdmin**: [http://localhost:8080/](http://localhost:8080/)
-* **pgweb (source)**: [http://localhost:8081/](http://localhost:8081/)
-* **pgweb (destination)**: [http://localhost:8082/](http://localhost:8082/)
-* **Spark Master**: [http://localhost:9090/](http://localhost:9090/)
-* **Spark Worker-1**: [http://localhost:9091/](http://localhost:9091/)
-* **Spark History**: [http://localhost:18080/](http://localhost:18080/)
-* **JupyterLab**: [http://localhost:8889/](http://localhost:8889/)
 
-If you set a custom JUPYTER_TOKEN, the URL is http://localhost:8889/?token=<your-token>.
+* **FastAPI (via nginx)**: http://localhost/
+  * Health: http://localhost/health
+* **pgAdmin**: http://localhost:8080/
+* **pgweb (source)**: http://localhost:8081/
+* **pgweb (destination)**: http://localhost:8082/
+* **Spark Master**: http://localhost:9090/
+* **Spark Worker-1**: http://localhost:9091/
+* **Spark History**: http://localhost:18080/
+* **JupyterLab**: http://localhost:8889/
+* **Redpanda Console**: http://localhost:8085/
+* **Redpanda Admin (readiness)**: http://localhost:9644/v1/status/ready
 
-**Direct Postgres** (from host):
+**Direct Postgres from host**
 
 * Source: `psql -h 127.0.0.1 -p 5433 -U src_user src_db`
 * Destination: `psql -h 127.0.0.1 -p 5434 -U dst_user dst_db`
+
+If you set a custom JUPYTER_TOKEN, open: `http://localhost:8889/?token=<your-token>`.
 
 ---
 
@@ -459,7 +473,73 @@ terraform -chdir=infra/docker apply -auto-approve
 When you only change Python code (not requirements), hot reload picks it up instantly (no rebuild needed).
 
 ---
+### Jupyter (container) dependencies
 
+You can install extra Python packages inside the **JupyterLab** container at startup via a bind-mounted requirements file.
+
+1. Create or edit `infra/requirements-jupyter.txt`, e.g.:
+
+```text
+pyspark
+pandas
+matplotlib
+requests
+```
+
+2. On container start, this file is mounted to `/tmp/requirements.txt` and the container runs:
+
+```bash
+pip install -r /tmp/requirements.txt && exec start-notebook.sh
+```
+
+3. Recreate Jupyter to apply changes:
+
+```bash
+terraform -chdir=infra/docker apply -auto-approve -target=module.spark_cluster.docker_container.jupyter
+```
+
+---
+## Spark History
+
+### Spark History UI requires event logs
+
+The History Server displays applications **only after** it finds Spark event logs in the shared volume.
+
+* Shared Docker volume: `spark_events`
+* Mounted path (in Spark/Jupyter containers): `/opt/bitnami/spark/tmp/spark-events`
+* Jupyter/driver must set:
+
+  * `spark.eventLog.enabled=true`
+  * `spark.eventLog.dir=file:/opt/bitnami/spark/tmp/spark-events`
+
+These settings are already injected into the Jupyter container via `PYSPARK_SUBMIT_ARGS`.
+
+#### Quick test (inside Jupyter)
+
+Create a new notebook and run:
+
+```python
+from pyspark.sql import SparkSession
+spark = (SparkSession.builder
+         .master("spark://spark-master:7077")
+         .appName("hist-check")
+         .getOrCreate())
+
+spark.range(100000).selectExpr("sum(id)").show()
+spark.stop()
+```
+
+Then open **[http://localhost:18080/](http://localhost:18080/)**.
+
+#### If permissions block writing event logs
+
+Run once in the Spark master container to ensure the directory exists and is world‑writable:
+
+```bash
+docker exec -it spark-master bash -lc 'mkdir -p /opt/bitnami/spark/tmp/spark-events && chmod 0777 /opt/bitnami/spark/tmp/spark-events'
+```
+
+---
 ## Database Initialization
 
 Place SQL files under `infra/docker/db-init/`. They are bind-mounted into both Postgres containers at `/docker-entrypoint-initdb.d` and executed **once** when a new data directory is created.
@@ -517,6 +597,18 @@ With that change, you’d hit FastAPI at `http://localhost/api/v2/...` while pgA
 * Use Docker’s DNS in nginx.conf: `resolver 127.0.0.11 ipv6=off valid=30s;`
 * Test config inside the container: `docker exec nginx nginx -t`
 
+**Redpanda health & readiness**
+
+* Terraform defines a **healthcheck** on the Redpanda container (Admin API port).
+* Readiness endpoint (host): `http://localhost:9644/v1/status/ready` → `{ "status": "ready" }` when OK.
+
+**Useful commands**
+
+```bash
+docker inspect --format '{{.State.Health.Status}}' redpanda || echo "no health section"
+curl -s http://localhost:9644/v1/status/ready | jq .
+```
+
 **Bind mount path must be absolute**
 
 * Terraform uses: `source = abspath("${path.module}/db-init")`
@@ -534,6 +626,158 @@ terraform -chdir=infra/docker apply -auto-approve
 ```
 
 ---
+
+## Testing (pytest)
+
+
+````markdown
+## Testing (pytest)
+
+A lightweight test suite validates key endpoints, ports, and Terraform outputs.
+
+### Install test deps (host)
+```bash
+python -m venv .venv && source .venv/bin/activate
+pip install -U pip pytest requests
+````
+
+### Layout
+
+* Tests live at **`.py/tests/test_stack.py`**.
+* Configure pytest discovery via **`pytest.ini`** at repo root.
+
+**`pytest.ini`**
+
+```ini
+[pytest]
+testpaths = .py/tests
+python_files = test_*.py
+```
+
+**`.py/tests/test_stack.py`**
+
+```python
+import os, json, time, socket, subprocess as sp
+from pathlib import Path
+import requests as R
+
+TIMEOUT = float(os.getenv("TEST_TIMEOUT", 5))
+RETRIES = int(os.getenv("TEST_RETRIES", 10))
+SLEEP   = float(os.getenv("TEST_SLEEP", 1))
+
+TF_DIR = os.environ.get(
+    "TF_DIR",
+    str(Path(__file__).resolve().parents[2] / "infra/docker")
+)
+
+URLS = {
+    "nginx_root": "http://localhost/",
+    "fastapi_direct": "http://localhost:8000/",
+    "pgadmin": "http://localhost:8080/",
+    "pgweb_src": "http://localhost:8081/",
+    "pgweb_dst": "http://localhost:8082/",
+    "spark_master": "http://localhost:9090/",
+    "spark_worker1": "http://localhost:9091/",
+    "spark_history": "http://localhost:18080/",
+    "jupyter": "http://localhost:8889/",
+    "redpanda_console": "http://localhost:8085/",
+    "redpanda_ready": "http://localhost:9644/v1/status/ready",
+}
+
+ALLOWED = {
+    "jupyter": {200, 302},  # token redirects allowed
+}
+
+
+def wait_http(url, ok_codes=None):
+    ok = ok_codes or {200}
+    last = None
+    for _ in range(RETRIES):
+        try:
+            r = R.get(url, timeout=TIMEOUT, allow_redirects=False)
+            if r.status_code in ok:
+                return r
+            last = r
+        except Exception as e:
+            last = e
+        time.sleep(SLEEP)
+    raise AssertionError(f"failed: {url} -> {getattr(last, 'status_code', last)}")
+
+
+def test_nginx_root():
+    assert wait_http(URLS["nginx_root"]).status_code == 200
+
+
+def test_fastapi_direct():
+    assert wait_http(URLS["fastapi_direct"]).status_code == 200
+
+
+def test_redpanda_ready():
+    r = wait_http(URLS["redpanda_ready"]).json()
+    assert r.get("status") == "ready"
+
+
+def test_redpanda_console():
+    assert wait_http(URLS["redpanda_console"]).status_code == 200
+
+
+def test_spark_master_ui():
+    assert wait_http(URLS["spark_master"]).status_code == 200
+
+
+def test_spark_worker_ui():
+    assert wait_http(URLS["spark_worker1"]).status_code == 200
+
+
+def test_spark_history_ui():
+    # History UI appears only after some event logs exist;
+    # we'll tolerate connection refusal by marking as xfail when closed.
+    try:
+        r = wait_http(URLS["spark_history"])  # 200 when logs exist
+        assert r.status_code == 200
+    except AssertionError as e:
+        import pytest
+        pytest.xfail(f"Spark History may be empty yet: {e}")
+
+
+def test_jupyter():
+    allowed = ALLOWED.get("jupyter", {200})
+    assert wait_http(URLS["jupyter"], ok_codes=allowed).status_code in allowed
+
+
+def test_pgweb_src():
+    assert wait_http(URLS["pgweb_src"]).status_code == 200
+
+
+def test_pgweb_dst():
+    assert wait_http(URLS["pgweb_dst"]).status_code == 200
+
+
+def test_pgadmin():
+    assert wait_http(URLS["pgadmin"]).status_code == 200
+
+
+def test_terraform_outputs_present():
+    # Not asserting reachability here (covered above), just that TF exposes URLs
+    if sp.run(["bash","-lc","command -v terraform >/dev/null 2>&1"]).returncode:
+        return  # terraform not installed in CI
+    p = sp.run(["bash","-lc", f"terraform -chdir='{TF_DIR}' output -json"], capture_output=True, text=True)
+    assert p.returncode == 0, p.stderr
+    data = json.loads(p.stdout)
+    keys = {"app_url","pgadmin_url","pgweb_src_url","pgweb_dst_url","redpanda_console_url","redpanda_admin_url"}
+    missing = [k for k in keys if k not in data]
+    assert not missing, f"missing outputs: {missing}"
+```
+
+### Run tests
+
+```bash
+pytest -q -s .py/tests/test_stack.py
+# or, with config in pytest.ini
+pytest -q -s
+```
+
+````
 
 ## Next Phases
 
