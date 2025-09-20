@@ -9,31 +9,27 @@ terraform {
 
 locals {
   cfg = {
-    SPARK_WORKER_COUNT   = tonumber(try(var.env["SPARK_WORKER_COUNT"], "1"))
-    SPARK_WORKER_CORES   = try(var.env["SPARK_WORKER_CORES"], "2")
-    SPARK_WORKER_MEMORY  = try(var.env["SPARK_WORKER_MEMORY"], "2g")
+    SPARK_WORKER_COUNT  = tonumber(try(var.env["SPARK_WORKER_COUNT"], "1"))
+    SPARK_WORKER_CORES  = try(var.env["SPARK_WORKER_CORES"], "2")
+    SPARK_WORKER_MEMORY = try(var.env["SPARK_WORKER_MEMORY"], "2g")
 
-    JUPYTER_TOKEN        = try(var.env["JUPYTER_TOKEN"], "dev")
-    JUPYTER_PORT         = tonumber(try(var.env["JUPYTER_PORT"], "8889"))
+    JUPYTER_TOKEN = try(var.env["JUPYTER_TOKEN"], "dev")
+    JUPYTER_PORT  = tonumber(try(var.env["JUPYTER_PORT"], "8889"))
 
     SPARK_MASTER_UI_PORT = tonumber(try(var.env["SPARK_MASTER_UI_PORT"], "9090"))
     SPARK_MASTER_PORT    = tonumber(try(var.env["SPARK_MASTER_PORT"], "7077"))
     SPARK_HISTORY_PORT   = tonumber(try(var.env["SPARK_HISTORY_PORT"], "18080"))
     SPARK_WORKER_UI_BASE = tonumber(try(var.env["SPARK_WORKER_UI_BASE"], "9091"))
 
-    ENABLE_MINIO         = lower(try(var.env["ENABLE_MINIO"], "false")) == "true"
-    MINIO_ROOT_USER      = try(var.env["MINIO_ROOT_USER"], "admin")
-    MINIO_ROOT_PASSWORD  = try(var.env["MINIO_ROOT_PASSWORD"], "admin12345")
-    MINIO_API_PORT       = tonumber(try(var.env["MINIO_API_PORT"], "9000"))
-    MINIO_CONSOLE_PORT   = tonumber(try(var.env["MINIO_CONSOLE_PORT"], "9001"))
+    ENABLE_MINIO        = lower(try(var.env["ENABLE_MINIO"], "false")) == "true"
+    MINIO_ROOT_USER     = try(var.env["MINIO_ROOT_USER"], "admin")
+    MINIO_ROOT_PASSWORD = try(var.env["MINIO_ROOT_PASSWORD"], "admin12345")
+    MINIO_API_PORT      = tonumber(try(var.env["MINIO_API_PORT"], "9000"))
+    MINIO_CONSOLE_PORT  = tonumber(try(var.env["MINIO_CONSOLE_PORT"], "9001"))
   }
 }
 
-# Reuse existing network by name
-data "docker_network" "app" {
-  name = var.network_name
-}
-
+# Volumes
 resource "docker_volume" "spark_events" {
   name = "spark_events"
 }
@@ -47,7 +43,7 @@ resource "docker_volume" "minio_data" {
   name = "minio_data"
 }
 
-# Multi-arch images (works on Raspberry Pi)
+# Images
 resource "docker_image" "spark" {
   name = "bitnami/spark:3.5.1-debian-12-r8"
 }
@@ -80,7 +76,7 @@ resource "docker_container" "spark_master" {
   }
 
   networks_advanced {
-    name = data.docker_network.app.name
+    name = var.network_name
   }
 
   mounts {
@@ -105,7 +101,6 @@ resource "docker_container" "spark_worker" {
     "SPARK_LOG_LEVEL=INFO"
   ]
 
-  # expose UI for the first worker only
   dynamic "ports" {
     for_each = count.index == 0 ? [1] : []
     content {
@@ -115,20 +110,24 @@ resource "docker_container" "spark_worker" {
   }
 
   networks_advanced {
-    name = data.docker_network.app.name
+    name = var.network_name
   }
 
   depends_on = [docker_container.spark_master]
 }
 
-# Spark History Server
+# Spark History Server (fix perms as root, then start)
 resource "docker_container" "spark_history" {
-  name  = "spark-history"
-  image = docker_image.spark.image_id
+  name    = "spark-history"
+  image   = docker_image.spark.image_id
+  restart = "unless-stopped"
+  user    = "0:0"
+
+  entrypoint = ["/bin/bash", "-lc"]
+  command    = ["mkdir -p /opt/bitnami/spark/tmp/spark-events && chown -R 1001:0 /opt/bitnami/spark/tmp/spark-events && chmod 0777 /opt/bitnami/spark/tmp/spark-events && exec /opt/bitnami/spark/bin/spark-class org.apache.spark.deploy.history.HistoryServer"]
 
   env = [
-    "SPARK_MODE=history-server",
-    "SPARK_HISTORY_OPTS=-Dspark.history.fs.logDirectory=/opt/bitnami/spark/tmp/spark-events -Dspark.history.ui.port=${local.cfg.SPARK_HISTORY_PORT}"
+    "SPARK_HISTORY_OPTS=-Dspark.history.fs.logDirectory=file:/opt/bitnami/spark/tmp/spark-events -Dspark.history.ui.port=${local.cfg.SPARK_HISTORY_PORT}"
   ]
 
   ports {
@@ -137,7 +136,7 @@ resource "docker_container" "spark_history" {
   }
 
   networks_advanced {
-    name = data.docker_network.app.name
+    name = var.network_name
   }
 
   mounts {
@@ -145,18 +144,36 @@ resource "docker_container" "spark_history" {
     type   = "volume"
     source = docker_volume.spark_events.name
   }
+  mounts {
+    target = "/event-logs"
+    type   = "volume"
+    source = docker_volume.spark_events.name
+  }
+
+  healthcheck {
+    test         = ["CMD-SHELL", "bash -lc 'exec 3<>/dev/tcp/127.0.0.1/${local.cfg.SPARK_HISTORY_PORT}'"]
+    interval     = "10s"
+    timeout      = "3s"
+    retries      = 10
+    start_period = "10s"
+  }
 
   depends_on = [docker_container.spark_master, docker_container.spark_worker]
 }
 
-# JupyterLab (PySpark)
+# JupyterLab (PySpark) – writes event logs into the same volume
 resource "docker_container" "jupyter" {
   name  = "jupyterlab"
   image = docker_image.jupyter.image_id
 
+  
+
   env = [
     "JUPYTER_TOKEN=${local.cfg.JUPYTER_TOKEN}",
-    "SPARK_MASTER=spark://spark-master:${local.cfg.SPARK_MASTER_PORT}"
+    "SPARK_MASTER=spark://spark-master:${local.cfg.SPARK_MASTER_PORT}",
+    "PYSPARK_SUBMIT_ARGS=--conf spark.eventLog.enabled=true --conf spark.eventLog.dir=file:/opt/bitnami/spark/tmp/spark-events pyspark-shell",
+    "NB_UID=1001",
+    "NB_GID=0"
   ]
 
   ports {
@@ -165,9 +182,13 @@ resource "docker_container" "jupyter" {
   }
 
   networks_advanced {
-    name = data.docker_network.app.name
+    name = var.network_name
   }
-
+  mounts {
+    target = "/opt/bitnami/spark/tmp/spark-events"
+    type   = "volume"
+    source = docker_volume.spark_events.name
+  }
   mounts {
     target = "/home/jovyan/work"
     type   = "volume"
@@ -178,8 +199,26 @@ resource "docker_container" "jupyter" {
     type   = "volume"
     source = docker_volume.jupyter_home.name
   }
+  mounts {
+    target = "/event-logs"
+    type   = "volume"
+    source = docker_volume.spark_events.name
+  }
 
-  command = ["start-notebook.sh"]
+  mounts {
+  type      = "bind"
+  source    = abspath("${path.root}/../../requirements-jupyter.txt")
+  target    = "/tmp/requirements.txt"
+  read_only = true
+}
+
+
+
+  command = [
+    "bash","-lc",
+    "if [ -f /tmp/requirements.txt ]; then pip install -r /tmp/requirements.txt; fi; exec start-notebook.sh"
+  ]
+
 
   depends_on = [docker_container.spark_master]
 }
@@ -206,7 +245,7 @@ resource "docker_container" "minio" {
   }
 
   networks_advanced {
-    name = data.docker_network.app.name
+    name = var.network_name
   }
 
   mounts {

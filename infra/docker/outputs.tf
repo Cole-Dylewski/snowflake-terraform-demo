@@ -1,7 +1,25 @@
-output "app_url" { value = "http://localhost/" }
-output "src_ui" { value = "http://localhost/src/" }
-output "dest_ui" { value = "http://localhost/dest/" }
-output "pgadmin_ui" { value = "http://localhost/pg/" }
+output "app_url" {
+  value = var.http_port == 80 ? "http://localhost/" : "http://localhost:${var.http_port}/"
+}
 
-output "src_psql" { value = "psql -h localhost -p ${var.src_host_port} -U ${var.src_db_user} ${var.src_db_name}" }
-output "dst_psql" { value = "psql -h localhost -p ${var.dst_host_port} -U ${var.dst_db_user} ${var.dst_db_name}" }
+# Port-based URLs (replace old /src, /dest, /pg paths)
+output "pgweb_src_url" {
+  value = "http://localhost:${var.pgweb_src_port}"
+}
+
+output "pgweb_dst_url" {
+  value = "http://localhost:${var.pgweb_dst_port}"
+}
+
+output "pgadmin_url" {
+  value = "http://localhost:${var.pgadmin_port}"
+}
+
+# Helpful extras
+output "redpanda_console_url" {
+  value = "http://localhost:${var.console_port}"
+}
+
+output "redpanda_admin_url" {
+  value = "http://localhost:${var.admin_port}"
+}

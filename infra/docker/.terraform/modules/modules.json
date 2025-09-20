@@ -1,1 +1,1 @@
-{"Modules":[{"Key":"","Source":"","Dir":"."},{"Key":"spark_cluster","Source":"./spark","Dir":"spark"}]}
+{"Modules":[{"Key":"","Source":"","Dir":"."},{"Key":"kafka","Source":"./kafka","Dir":"kafka"},{"Key":"spark_cluster","Source":"./spark","Dir":"spark"}]}
