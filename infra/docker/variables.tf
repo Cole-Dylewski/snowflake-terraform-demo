@@ -1,3 +1,5 @@
+#infra/docker/variables.tf
+
 variable "src_db_user" {
   type    = string
   default = "src_user"
@@ -97,93 +99,7 @@ variable "airflow_fernet_key" {
   sensitive   = true
 }
 
-variable "airflow_admin_username" {
-   description = "Initial Airflow admin username."
-    type = string
-    default = "admin" 
-    }
-
-variable "airflow_admin_password" { 
-  description = "Initial Airflow admin password.";
-  type = string
-  sensitive = true 
-  }
-variable "airflow_admin_email"    { 
-  description = "Initial Airflow admin email."
-  type = string
-  default = "admin@example.com" 
-  }
-variable "airflow_admin_firstname"{ 
-  description = "Initial Airflow admin first name."
-  type = string
-  default = "Admin" 
-  }
-variable "airflow_admin_lastname" { 
-  description = "Initial Airflow admin last name."
-  type = string
-  default = "User" 
-}
-
-variable "airflow_admin_username" {
-  description = "Initial Airflow admin username."
-  type        = string
-  default     = "admin"
-}
-
-variable "airflow_admin_password" {
-  description = "Initial Airflow admin password."
-  type        = string
-  sensitive   = true
-}
-
-variable "airflow_admin_email" {
-  description = "Initial Airflow admin email."
-  type        = string
-  default     = "admin@example.com"
-}
-
-variable "airflow_admin_firstname" {
-  description = "Initial Airflow admin first name."
-  type        = string
-  default     = "Admin"
-}
-
-variable "airflow_admin_lastname" {
-  description = "Initial Airflow admin last name."
-  type        = string
-  default     = "User"
-}
-
-variable "airflow_admin_username" {
-  description = "Initial Airflow admin username."
-  type        = string
-  default     = "admin"
-}
-
-variable "airflow_admin_password" {
-  description = "Initial Airflow admin password."
-  type        = string
-  sensitive   = true
-}
-
-variable "airflow_admin_email" {
-  description = "Initial Airflow admin email."
-  type        = string
-  default     = "admin@example.com"
-}
-
-variable "airflow_admin_firstname" {
-  description = "Initial Airflow admin first name."
-  type        = string
-  default     = "Admin"
-}
-
-variable "airflow_admin_lastname" {
-  description = "Initial Airflow admin last name."
-  type        = string
-  default     = "User"
-}
-
+# ---- Airflow admin credentials (single source of truth) ----
 variable "airflow_admin_username" {
   description = "Initial Airflow admin username."
   type        = string
