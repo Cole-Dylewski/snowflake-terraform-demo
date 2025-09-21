@@ -214,4 +214,10 @@ _utils/
 infra/docker/terraform.*
 infra/docker/terraform.tfstate
 infra/docker/terraform.tfstate.backup
+infra/docker/airflow.auto.tfvars
 
+# Local-only config (never commit)
+*.auto.tfvars
+infra/docker/*.auto.tfvars
+.env
+.env.*
