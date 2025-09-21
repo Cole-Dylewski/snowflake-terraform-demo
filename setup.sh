@@ -122,6 +122,27 @@ while IFS= read -r line || [[ -n "$line" ]]; do
   CURRENT["$k"]="$(strip_quotes "$rawv")"
 done < "$ENV_FILE"
 
+# --- Airflow Fernet auto-generation (urlsafe) ---
+# If AIRFLOW_FERNET_KEY is missing or set to 'auto', create one now.
+if [[ -z "${CURRENT[AIRFLOW_FERNET_KEY]:-}" || "${CURRENT[AIRFLOW_FERNET_KEY]}" == "auto" ]]; then
+  if command -v python3 >/dev/null 2>&1; then
+    _FERNET="$(python3 - <<'PY'
+import os, base64
+print(base64.urlsafe_b64encode(os.urandom(32)).decode())
+PY
+)"
+  else
+    # Fallback: openssl + urlsafe transform (strip padding)
+    _FERNET="$(head -c 32 /dev/urandom | base64 | tr '+/' '-_' | tr -d '=')"
+  fi
+
+  # Seed CURRENT and mark for write-out
+  CURRENT["AIRFLOW_FERNET_KEY"]="${_FERNET}"
+  UPDATED["AIRFLOW_FERNET_KEY"]="${_FERNET}"
+
+  echo "[info] Generated AIRFLOW_FERNET_KEY"
+fi
+
 # Function to maybe auto-generate secrets if key name matches pattern
 maybe_generate_secret() {
   local key="$1"

@@ -90,3 +90,126 @@ variable "env" {
   type        = map(string)
   default     = {}
 }
+
+variable "airflow_fernet_key" {
+  description = "Airflow Fernet key (base64 urlsafe). Generate once and keep secret."
+  type        = string
+  sensitive   = true
+}
+
+variable "airflow_admin_username" {
+   description = "Initial Airflow admin username."
+    type = string
+    default = "admin" 
+    }
+
+variable "airflow_admin_password" { 
+  description = "Initial Airflow admin password.";
+  type = string
+  sensitive = true 
+  }
+variable "airflow_admin_email"    { 
+  description = "Initial Airflow admin email."
+  type = string
+  default = "admin@example.com" 
+  }
+variable "airflow_admin_firstname"{ 
+  description = "Initial Airflow admin first name."
+  type = string
+  default = "Admin" 
+  }
+variable "airflow_admin_lastname" { 
+  description = "Initial Airflow admin last name."
+  type = string
+  default = "User" 
+}
+
+variable "airflow_admin_username" {
+  description = "Initial Airflow admin username."
+  type        = string
+  default     = "admin"
+}
+
+variable "airflow_admin_password" {
+  description = "Initial Airflow admin password."
+  type        = string
+  sensitive   = true
+}
+
+variable "airflow_admin_email" {
+  description = "Initial Airflow admin email."
+  type        = string
+  default     = "admin@example.com"
+}
+
+variable "airflow_admin_firstname" {
+  description = "Initial Airflow admin first name."
+  type        = string
+  default     = "Admin"
+}
+
+variable "airflow_admin_lastname" {
+  description = "Initial Airflow admin last name."
+  type        = string
+  default     = "User"
+}
+
+variable "airflow_admin_username" {
+  description = "Initial Airflow admin username."
+  type        = string
+  default     = "admin"
+}
+
+variable "airflow_admin_password" {
+  description = "Initial Airflow admin password."
+  type        = string
+  sensitive   = true
+}
+
+variable "airflow_admin_email" {
+  description = "Initial Airflow admin email."
+  type        = string
+  default     = "admin@example.com"
+}
+
+variable "airflow_admin_firstname" {
+  description = "Initial Airflow admin first name."
+  type        = string
+  default     = "Admin"
+}
+
+variable "airflow_admin_lastname" {
+  description = "Initial Airflow admin last name."
+  type        = string
+  default     = "User"
+}
+
+variable "airflow_admin_username" {
+  description = "Initial Airflow admin username."
+  type        = string
+  default     = "admin"
+}
+
+variable "airflow_admin_password" {
+  description = "Initial Airflow admin password."
+  type        = string
+  sensitive   = true
+}
+
+variable "airflow_admin_email" {
+  description = "Initial Airflow admin email."
+  type        = string
+  default     = "admin@example.com"
+}
+
+variable "airflow_admin_firstname" {
+  description = "Initial Airflow admin first name."
+  type        = string
+  default     = "Admin"
+}
+
+variable "airflow_admin_lastname" {
+  description = "Initial Airflow admin last name."
+  type        = string
+  default     = "User"
+}

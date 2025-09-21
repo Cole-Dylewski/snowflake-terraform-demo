@@ -223,8 +223,37 @@ Follow these steps to get your development environment running:
 
 6. **Stop Services**
 
-   ```bash
-   terraform -chdir=infra/docker destroy -auto-approve
+  ```bash
+  terraform -chdir=infra/docker destroy -auto-approve
+  ```
+
+  **OR**
+  ```bash
+  #!/usr/bin/env bash
+  set -Eeuo pipefail
+
+  echo ">>> Stopping & removing ALL containers…"
+  docker rm -f $(docker ps -aq) 2>/dev/null || true
+
+  echo ">>> Removing ALL images…"
+  docker rmi -f $(docker images -aq) 2>/dev/null || true
+
+  echo ">>> Pruning ALL networks (that aren’t in use)…"
+  docker network prune -f || true
+
+  echo ">>> Pruning ALL UNUSED volumes (data loss for unused volumes)…"
+  docker volume prune -f || true
+
+  echo ">>> Wiping Terraform working dir + state for this module…"
+  rm -rf infra/docker/.terraform
+  rm -f  infra/docker/.terraform.lock.hcl
+  rm -f  infra/docker/terraform.tfstate infra/docker/terraform.tfstate.backup
+
+  echo ">>> Done (system-wide Docker clean)."
+  echo "Next:"
+  echo "  terraform -chdir=infra/docker init -upgrade"
+  echo "  terraform -chdir=infra/docker apply -auto-approve -var-file=/tmp/env.auto.tfvars.json"
+
    ```
 
 

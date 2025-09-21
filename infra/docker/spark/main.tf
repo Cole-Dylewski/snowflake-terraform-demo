@@ -1,11 +1,11 @@
 terraform {
   required_providers {
     docker = {
-      source  = "kreuzwerker/docker"
-      version = ">= 3.0.0"
+      source = "kreuzwerker/docker"
     }
   }
 }
+
 
 locals {
   cfg = {
@@ -166,7 +166,7 @@ resource "docker_container" "jupyter" {
   name  = "jupyterlab"
   image = docker_image.jupyter.image_id
 
-  
+
 
   env = [
     "JUPYTER_TOKEN=${local.cfg.JUPYTER_TOKEN}",
@@ -206,16 +206,16 @@ resource "docker_container" "jupyter" {
   }
 
   mounts {
-  type      = "bind"
-  source    = abspath("${path.root}/../../requirements-jupyter.txt")
-  target    = "/tmp/requirements.txt"
-  read_only = true
-}
+    type      = "bind"
+    source    = abspath("${path.root}/../../requirements-jupyter.txt")
+    target    = "/tmp/requirements.txt"
+    read_only = true
+  }
 
 
 
   command = [
-    "bash","-lc",
+    "bash", "-lc",
     "if [ -f /tmp/requirements.txt ]; then pip install -r /tmp/requirements.txt; fi; exec start-notebook.sh"
   ]
 

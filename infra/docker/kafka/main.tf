@@ -1,11 +1,11 @@
 terraform {
   required_providers {
     docker = {
-      source  = "kreuzwerker/docker"
-      version = ">= 3.0.2"
+      source = "kreuzwerker/docker"
     }
   }
 }
+
 
 data "docker_network" "net" {
   name = var.network_name

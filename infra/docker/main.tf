@@ -1,11 +1,14 @@
 terraform {
+  required_version = ">= 1.4.0"
+
   required_providers {
     docker = {
       source  = "kreuzwerker/docker"
-      version = "~> 3.0"
+      version = "~> 3.6"
     }
   }
 }
+
 
 provider "docker" {}
 
@@ -338,4 +341,18 @@ module "kafka" {
   network_name = docker_network.app_net.name
 
   depends_on = [docker_network.app_net]
+}
+
+# Airflow submodule
+module "airflow" {
+  source             = "./airflow"
+  network_name       = docker_network.app_net.name
+  airflow_fernet_key = var.airflow_fernet_key
+  web_external_port  = 8099
+
+  airflow_admin_username  = var.airflow_admin_username
+  airflow_admin_password  = var.airflow_admin_password
+  airflow_admin_email     = var.airflow_admin_email
+  airflow_admin_firstname = var.airflow_admin_firstname
+  airflow_admin_lastname  = var.airflow_admin_lastname
 }
