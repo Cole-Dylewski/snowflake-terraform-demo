@@ -123,8 +123,11 @@ while IFS= read -r line || [[ -n "$line" ]]; do
 done < "$ENV_FILE"
 
 # --- Airflow Fernet auto-generation (urlsafe) ---
+# Ensure UPDATED is an associative array before we write to it
+declare -p UPDATED >/dev/null 2>&1 || declare -A UPDATED
+
 # If AIRFLOW_FERNET_KEY is missing or set to 'auto', create one now.
-if [[ -z "${CURRENT[AIRFLOW_FERNET_KEY]:-}" || "${CURRENT[AIRFLOW_FERNET_KEY]}" == "auto" ]]; then
+if [[ -z "${CURRENT["AIRFLOW_FERNET_KEY"]:-}" || "${CURRENT["AIRFLOW_FERNET_KEY"]}" == "auto" ]]; then
   if command -v python3 >/dev/null 2>&1; then
     _FERNET="$(python3 - <<'PY'
 import os, base64
@@ -142,6 +145,7 @@ PY
 
   echo "[info] Generated AIRFLOW_FERNET_KEY"
 fi
+
 
 # Function to maybe auto-generate secrets if key name matches pattern
 maybe_generate_secret() {
