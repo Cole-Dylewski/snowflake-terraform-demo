@@ -8,28 +8,27 @@ terraform {
 
 
 locals {
-  # Parsed config (numbers via tonumber; booleans via string match)
-  cfg = {
-    SPARK_WORKER_COUNT  = tonumber(try(var.env["SPARK_WORKER_COUNT"], "1"))
+  # Safe parsing: strip quotes & inline comments before tonumber
+  env = {
+    SPARK_WORKER_COUNT  = tonumber(regexreplace(regexreplace(trim(try(var.env["SPARK_WORKER_COUNT"], "1")), "^\"|\"$", ""), "\\s+#.*$", ""))
     SPARK_WORKER_CORES  = try(var.env["SPARK_WORKER_CORES"], "2")
     SPARK_WORKER_MEMORY = try(var.env["SPARK_WORKER_MEMORY"], "2g")
 
     JUPYTER_TOKEN       = try(var.env["JUPYTER_TOKEN"], "dev")
-    JUPYTER_PORT        = tonumber(try(var.env["JUPYTER_PORT"], "8889"))
+    JUPYTER_PORT        = tonumber(regexreplace(regexreplace(trim(try(var.env["JUPYTER_PORT"], "8889")), "^\"|\"$", ""), "\\s+#.*$", ""))
 
-    SPARK_MASTER_UI_PORT = tonumber(try(var.env["SPARK_MASTER_UI_PORT"], "9090"))
-    SPARK_MASTER_PORT    = tonumber(try(var.env["SPARK_MASTER_PORT"], "7077"))
-    SPARK_HISTORY_PORT   = tonumber(try(var.env["SPARK_HISTORY_PORT"], "18080"))
-    SPARK_WORKER_UI_BASE = tonumber(try(var.env["SPARK_WORKER_UI_BASE"], "9091"))
+    SPARK_MASTER_UI_PORT = tonumber(regexreplace(regexreplace(trim(try(var.env["SPARK_MASTER_UI_PORT"], "9090")), "^\"|\"$", ""), "\\s+#.*$", ""))
+    SPARK_MASTER_PORT    = tonumber(regexreplace(regexreplace(trim(try(var.env["SPARK_MASTER_PORT"], "7077")), "^\"|\"$", ""), "\\s+#.*$", ""))
+    SPARK_HISTORY_PORT   = tonumber(regexreplace(regexreplace(trim(try(var.env["SPARK_HISTORY_PORT"], "18080")), "^\"|\"$", ""), "\\s+#.*$", ""))
+    SPARK_WORKER_UI_BASE = tonumber(regexreplace(regexreplace(trim(try(var.env["SPARK_WORKER_UI_BASE"], "9091")), "^\"|\"$", ""), "\\s+#.*$", ""))
 
-    ENABLE_MINIO        = lower(try(var.env["ENABLE_MINIO"], "false")) == "true"
+    ENABLE_MINIO        = try(var.env["ENABLE_MINIO"], "false")
     MINIO_ROOT_USER     = try(var.env["MINIO_ROOT_USER"], "admin")
     MINIO_ROOT_PASSWORD = try(var.env["MINIO_ROOT_PASSWORD"], "admin12345")
-    MINIO_API_PORT      = tonumber(try(var.env["MINIO_API_PORT"], "9000"))
-    MINIO_CONSOLE_PORT  = tonumber(try(var.env["MINIO_CONSOLE_PORT"], "9001"))
+    MINIO_API_PORT      = tonumber(regexreplace(regexreplace(trim(try(var.env["MINIO_API_PORT"], "9000")), "^\"|\"$", ""), "\\s+#.*$", ""))
+    MINIO_CONSOLE_PORT  = tonumber(regexreplace(regexreplace(trim(try(var.env["MINIO_CONSOLE_PORT"], "9001")), "^\"|\"$", ""), "\\s+#.*$", ""))
   }
 }
-
 
 
 # Volumes
