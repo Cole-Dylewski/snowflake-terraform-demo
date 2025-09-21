@@ -128,13 +128,58 @@ Published host ports: 80, 8080, 8081, 8082, 9090, 9091, 18080, 8889, 8085, 9644.
 # From repo root
 cp -n .env.example .env
 
-terraform -chdir=infra/docker init
+# (Recommended) Fill in .env and auto-generate secrets (Fernet, passwords, etc.)
+chmod +x setup.sh
+./setup.sh   # use --ci in automation to require everything be present
 
-# Build a JSON var-file from .env and apply
-awk -F= 'BEGIN{printf "{\n  \"env\": {"} NF==2 && $1 !~ /^[#]/ { gsub(/\r/, "", $2); gsub(/"/, "\\\"", $2); if(n++) printf ", "; printf "\n    \"%s\": \"%s\"", $1, $2 } END{printf "\n  }\n}\n"}' .env > /tmp/env.auto.tfvars.json
+# Initialize Terraform (installs ARM-friendly docker provider on Pi)
+terraform -chdir=infra/docker init -upgrade
 
+# Build a clean JSON var-file from .env
+# - strips quotes and inline '# comments'
+# - normalizes numeric ports/counts
+# - surfaces Airflow creds so Terraform won't prompt
+python3 - <<'PY'
+import re, json
+
+def cleaned_value(key, raw):
+    raw = raw.strip()
+    if (raw[:1] in ("'", '"')) and (raw[-1:] == raw[:1]):
+        inner = raw[1:-1]
+    else:
+        inner = raw
+    inner = re.split(r"\s+#", inner, 1)[0].strip()  # drop inline comments
+    if key.endswith("_PORT") or key.endswith("_COUNT"):
+        m = re.match(r"^\s*(\d+)\s*$", inner)
+        if m: return m.group(1)
+    return inner
+
+env = {}
+with open(".env","r",encoding="utf-8") as f:
+    for line in f:
+        if not line.strip() or line.lstrip().startswith("#") or "=" not in line:
+            continue
+        k,v = line.rstrip("\r\n").split("=",1)
+        env[k.strip()] = cleaned_value(k.strip(), v)
+
+out = {
+  "env": env,
+  "airflow_fernet_key":      env.get("AIRFLOW_FERNET_KEY",""),
+  "airflow_admin_username":  env.get("AIRFLOW_ADMIN_USERNAME","admin"),
+  "airflow_admin_password":  env.get("AIRFLOW_ADMIN_PASSWORD","changeme"),
+  "airflow_admin_email":     env.get("AIRFLOW_ADMIN_EMAIL","admin@example.com"),
+  "airflow_admin_firstname": env.get("AIRFLOW_ADMIN_FIRSTNAME","Admin"),
+  "airflow_admin_lastname":  env.get("AIRFLOW_ADMIN_LASTNAME","User"),
+}
+open("/tmp/env.auto.tfvars.json","w",encoding="utf-8").write(json.dumps(out,indent=2))
+print("Wrote /tmp/env.auto.tfvars.json")
+PY
+
+# Bring everything up
 terraform -chdir=infra/docker apply -auto-approve -var-file=/tmp/env.auto.tfvars.json
 
+# See convenient URLs/ports
+terraform -chdir=infra/docker output service_urls
 
 # Verify ports & containers
 docker ps --format 'table {{.Names}}\t{{.Ports}}'
@@ -145,6 +190,7 @@ curl http://localhost/health
 
 # Open UIs
 # FastAPI (through nginx):   http://localhost/
+# Airflow Web UI:            http://localhost:8099/
 # pgAdmin:                   http://localhost:8080/
 # pgweb (source):            http://localhost:8081/
 # pgweb (destination):       http://localhost:8082/
