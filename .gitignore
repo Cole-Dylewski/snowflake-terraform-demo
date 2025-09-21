@@ -221,3 +221,9 @@ infra/docker/airflow.auto.tfvars
 infra/docker/*.auto.tfvars
 .env
 .env.*
+
+# Local-only config (never commit)
+*.auto.tfvars
+infra/docker/*.auto.tfvars
+.env
+.env.*
