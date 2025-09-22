@@ -42,6 +42,7 @@ A portable, Terraform-managed development environment that stands up:
 * [Troubleshooting](#troubleshooting)
 * [Testing](#testing-pytest)
 * [Next Phases](#next-phases)
+* [Road Map](#road-map)
 
 ---
 
@@ -852,13 +853,79 @@ pytest -q -s .py/tests/test_stack.py
 pytest -q -s
 ```
 
-````
+
 
 ## Next Phases
 
 * **Phase Two:** Real data flows & background jobs (ETL/ELT) between source and destination. Alpaca/Kafka → Spark Structured Streaming → Snowflake
 * **Phase Three:** Harden for staging/prod: TLS (Caddy or Nginx + certs), authn/z, observability, backups.
 * **Snowflake Integration:** Extend the Terraform stack to provision Snowflake resources and wire an ingestion path.
+
+---
+
+## Road Map
+
+### Phase 3 — DevOps Enhancements
+
+This phase extends the project beyond core services into a production-minded environment. It introduces CI/CD pipelines, observability, security, orchestration, and developer experience improvements using common DevOps tools and practices.
+
+---
+
+### Workstreams
+
+* **CI/CD & Automation**
+  Integrate GitHub Actions for automated linting, testing, Docker image builds, and Terraform validation.
+  Add pre-commit hooks for Python (`black`, `ruff`, `isort`) and Terraform (`fmt`, `tflint`).
+  Publish Docker images to GitHub Container Registry (GHCR).
+  Add Infracost for cost estimation and Conftest/OPA policies for Terraform.
+  Implement release workflows with tagging, changelogs, and versioned builds.
+
+* **Observability & Monitoring**
+  Deploy Prometheus for metrics collection across FastAPI, Postgres, Spark, and Airflow.
+  Provide Grafana dashboards for API latency, database health, Spark job performance, and Airflow DAG/task metrics.
+  Introduce centralized logging using Loki (lightweight) or EFK stack (Elasticsearch/OpenSearch, Fluent Bit, Kibana).
+  Configure Alertmanager for service outages, high error rates, or job failures.
+  Standardize health and readiness endpoints across all services.
+
+* **Security & Compliance**
+  Manage secrets via HashiCorp Vault (dev mode locally) or SOPS-encrypted files.
+  Use Trivy or Grype to scan Docker images, and tfsec or Checkov for Terraform.
+  Generate SBOMs with Syft or CycloneDX for software transparency.
+  Enforce branch protections, code ownership rules, and PR templates for safe collaboration.
+
+* **Deployment Footprint**
+  Add Kubernetes manifests or Helm charts for each service (API, Spark, Airflow, Grafana, Prometheus, etc.).
+  Support local Kubernetes deployments with kind for testing.
+  Configure ingress controllers (NGINX or Traefik) with TLS certificates (mkcert or Let’s Encrypt).
+  Demonstrate rolling updates or canary deployments with tools like Argo Rollouts.
+  Optionally integrate GitOps with Argo CD to manage cluster state declaratively.
+
+* **Airflow Enhancements**
+  Expand Airflow usage with DAGs for batch (SparkSubmitOperator) and streaming tasks.
+  Parameterize DAGs with environment-specific Variables and Connections (Postgres, MinIO/S3, Snowflake).
+  Add DAG integrity checks, unit tests for Python callables, and Great Expectations for data validation.
+  Expose Airflow metrics to Prometheus and visualize them in Grafana.
+  Configure SLA alerts, failure callbacks, and role-based access controls.
+  Externalize Airflow Connections/Variables via Vault or SOPS.
+
+* **Developer Experience**
+  Expand the Makefile with common targets (up, down, logs, test, lint, seed, demo).
+  Provide standardized development environments (devcontainers or Dockerized toolchains).
+  Create runbooks for debugging API latency, diagnosing Spark or Airflow job failures, and rotating secrets.
+  Add architecture diagrams (Mermaid and PNG exports) and demo recordings (asciinema or GIFs).
+
+
+
+---
+
+### Acceptance Criteria
+
+* Automated pipelines validate, test, build, and publish artifacts.
+* Metrics, dashboards, and alerts provide visibility into API, Postgres, Spark, and Airflow.
+* Secrets are externalized and no plaintext credentials remain in the repo.
+* Kubernetes deployment is operational and demonstrates safe upgrade strategies.
+* At least one Airflow DAG runs end-to-end with data quality checks.
+* Documentation, diagrams, and runbooks are available to operate and demo the system.
 
 ---
 
