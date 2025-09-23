@@ -1,16 +1,22 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+# ----------------- Config / Flags -----------------
 ENV_FILE="${ENV_FILE:-.env}"
 EXAMPLE_CANDIDATES=(".env.example" "example.env")
 BACKUP_SUFFIX="$(date +%Y%m%d-%H%M%S)"
 MODE="interactive" # or "ci"
+TFVARS_OUT="infra/docker/env.auto.tfvars.json"
+APPLY="no"  # "yes" to run terraform
 
 usage() {
   cat <<EOF
-Usage: ${0##*/} [--ci] [--env-file PATH]
-  --ci              Non-interactive: exit 1 if any required vars are missing
-  --env-file PATH   Path to .env file (default: .env)
+Usage: ${0##*/} [--ci] [--env-file PATH] [--tfvars-out PATH] [--apply]
+  --ci                Non-interactive; exit 1 if any required vars are missing
+  --env-file PATH     Path to .env file (default: .env or \$ENV_FILE)
+  --tfvars-out PATH   Where to write JSON tfvars (default: infra/docker/env.auto.tfvars.json)
+  --apply             After updating .env and tfvars, run: terraform init/apply
+  -h, --help          Show this help
 EOF
 }
 
@@ -18,18 +24,25 @@ while [[ $# -gt 0 ]]; do
   case "$1" in
     --ci) MODE="ci"; shift ;;
     --env-file) ENV_FILE="$2"; shift 2 ;;
+    --apply) APPLY="yes"; shift ;;
     -h|--help) usage; exit 0 ;;
     *) echo "Unknown arg: $1" >&2; usage; exit 2 ;;
   esac
 done
 
-# Find an example file if present
+# Require Bash >= 4 for associative arrays
+if ! (exec bash -c '[[ ${BASH_VERSINFO[0]} -ge 4 ]]'); then
+  echo "[error] Bash 4+ required (associative arrays). Current: $BASH_VERSION" >&2
+  exit 1
+fi
+
+# ----------------- Example discovery -----------------
 EXAMPLE_FILE=""
 for cand in "${EXAMPLE_CANDIDATES[@]}"; do
   [[ -f "$cand" ]] && { EXAMPLE_FILE="$cand"; break; }
 done
 
-# Ensure .env exists (seed from example if possible)
+# ----------------- Ensure .env exists -----------------
 if [[ ! -f "$ENV_FILE" ]]; then
   if [[ -n "$EXAMPLE_FILE" ]]; then
     echo "[info] $ENV_FILE not found. Seeding from $EXAMPLE_FILE"
@@ -43,7 +56,7 @@ EOF
   fi
 fi
 
-# Ensure .env is ignored by git
+# ----------------- .gitignore safety -----------------
 if [[ -d .git ]]; then
   if [[ ! -f .gitignore ]] || ! grep -qxF "$(basename "$ENV_FILE")" .gitignore; then
     echo "[info] Adding $(basename "$ENV_FILE") to .gitignore"
@@ -51,13 +64,10 @@ if [[ -d .git ]]; then
   fi
 fi
 
-# Helpers to parse KEY=VALUE lines, ignoring comments/blank
-is_assignment() {
-  [[ "$1" =~ ^[[:space:]]*[A-Za-z_][A-Za-z0-9_]*= ]]
-}
+# ----------------- Helpers -----------------
+is_assignment() { [[ "$1" =~ ^[[:space:]]*[A-Za-z_][A-Za-z0-9_]*= ]]; }
 
 key_from_line() {
-  # prints KEY for KEY=VALUE (handles spaces before KEY)
   local line="$1"
   line="${line#"${line%%[![:space:]]*}"}"   # ltrim
   echo "${line%%=*}"
@@ -80,12 +90,12 @@ strip_quotes() {
 }
 
 escape_val() {
-  # Always write quoted to be safe (preserve spaces/specials)
+  # Always write quoted to preserve spaces/specials
   local v="$1"
   printf '"%s"' "$(printf '%s' "$v" | sed 's/"/\\"/g')"
 }
 
-# Build a map of defaults from example file (if present)
+# ----------------- Build defaults (from example) -----------------
 declare -A DEFAULTS
 if [[ -n "$EXAMPLE_FILE" ]]; then
   while IFS= read -r line || [[ -n "$line" ]]; do
@@ -96,8 +106,7 @@ if [[ -n "$EXAMPLE_FILE" ]]; then
   done < "$EXAMPLE_FILE"
 fi
 
-# Build a set of keys we should manage:
-# union of keys from example file and current env file
+# ----------------- Build full key set -----------------
 declare -A ALL_KEYS
 while IFS= read -r line || [[ -n "$line" ]]; do
   is_assignment "$line" || continue
@@ -113,7 +122,7 @@ if [[ -n "$EXAMPLE_FILE" ]]; then
   done < "$EXAMPLE_FILE"
 fi
 
-# Read current values from .env
+# ----------------- Read current values -----------------
 declare -A CURRENT
 while IFS= read -r line || [[ -n "$line" ]]; do
   is_assignment "$line" || continue
@@ -122,11 +131,10 @@ while IFS= read -r line || [[ -n "$line" ]]; do
   CURRENT["$k"]="$(strip_quotes "$rawv")"
 done < "$ENV_FILE"
 
-# --- Airflow Fernet auto-generation (urlsafe) ---
-# Ensure UPDATED is an associative array before we write to it
-declare -p UPDATED >/dev/null 2>&1 || declare -A UPDATED
+# ----------------- Track updates (fix for nounset) -----------------
+declare -A UPDATED=()
 
-# If AIRFLOW_FERNET_KEY is missing or set to 'auto', create one now.
+# ----------------- Airflow Fernet auto-generation -----------------
 if [[ -z "${CURRENT["AIRFLOW_FERNET_KEY"]:-}" || "${CURRENT["AIRFLOW_FERNET_KEY"]}" == "auto" ]]; then
   if command -v python3 >/dev/null 2>&1; then
     _FERNET="$(python3 - <<'PY'
@@ -135,30 +143,44 @@ print(base64.urlsafe_b64encode(os.urandom(32)).decode())
 PY
 )"
   else
-    # Fallback: openssl + urlsafe transform (strip padding)
-    _FERNET="$(head -c 32 /dev/urandom | base64 | tr '+/' '-_' | tr -d '=')"
+    # Fallback: 32 bytes urandom, urlsafe, strip padding
+    if command -v openssl >/dev/null 2>&1; then
+      _FERNET="$(openssl rand 32 | base64 | tr '+/' '-_' | tr -d '=')"
+    else
+      _FERNET="$(head -c 32 /dev/urandom | base64 | tr '+/' '-_' | tr -d '=')"
+    fi
   fi
 
-  # Seed CURRENT and mark for write-out
   CURRENT["AIRFLOW_FERNET_KEY"]="${_FERNET}"
   UPDATED["AIRFLOW_FERNET_KEY"]="${_FERNET}"
-
   echo "[info] Generated AIRFLOW_FERNET_KEY"
 fi
 
-
-# Function to maybe auto-generate secrets if key name matches pattern
+# ----------------- Maybe auto-generate secrets -----------------
 maybe_generate_secret() {
   local key="$1"
+  # Always return 0; echo empty if cannot generate
   if [[ "$key" =~ (SECRET|TOKEN|KEY|PASSWORD|PASS|API_KEY)$ ]]; then
-    # 32 random base64 chars (no newlines)
-    openssl rand -base64 32 | tr -d '\n'
+    if command -v python3 >/dev/null 2>&1; then
+      python3 - <<'PY' || true
+import secrets, base64
+print(base64.b64encode(secrets.token_bytes(32)).decode().strip())
+PY
+      return 0
+    fi
+    if command -v openssl >/dev/null 2>&1; then
+      openssl rand -base64 32 2>/dev/null | tr -d '\n' || true
+      return 0
+    fi
+    # POSIX fallback
+    head -c 32 /dev/urandom | base64 | tr -d '\n' || true
+    return 0
   fi
+  return 0
 }
 
-# Interactive fill of missing/empty vars
+# ----------------- Interactive fill / CI check -----------------
 missing=()
-declare -A UPDATED
 for k in "${!ALL_KEYS[@]}"; do
   cur="${CURRENT[$k]:-}"
   if [[ -z "$cur" ]]; then
@@ -167,21 +189,12 @@ for k in "${!ALL_KEYS[@]}"; do
       missing+=("$k")
       continue
     fi
+
     echo
     echo "• $k is missing."
-    if [[ -n "$def" ]]; then
-      echo "  default from $(basename "$EXAMPLE_FILE"): '$def'"
-    fi
+    [[ -n "$def" ]] && echo "  default from $(basename "$EXAMPLE_FILE"): '$def'"
 
-    # Offer auto-gen for secretish keys
-    auto=""
-    gen=""
-    if gen="$(maybe_generate_secret "$k" 2>/dev/null || true)"; then
-      if [[ -n "$gen" ]]; then
-        auto="$gen"
-      fi
-    fi
-
+    auto="$(maybe_generate_secret "$k" || true)"
     prompt="Enter value for $k"
     [[ -n "$def" ]] && prompt+=" [default: $def]"
     [[ -n "$auto" ]] && prompt+=" [autogen available: <enter> to accept default, or type '!' to autogen]"
@@ -214,48 +227,43 @@ if [[ "$MODE" == "ci" && ${#missing[@]} -gt 0 ]]; then
   exit 1
 fi
 
-# If nothing changed and nothing missing, we're done
+# ----------------- If no changes, exit early -----------------
 if [[ ${#UPDATED[@]} -eq 0 ]]; then
   echo "[ok] $ENV_FILE is complete. No changes needed."
-  exit 0
+else
+  # ----------------- Rewrite .env preserving comments/order -----------------
+  tmp="$(mktemp)"
+  while IFS= read -r line || [[ -n "$line" ]]; do
+    if is_assignment "$line"; then
+      k="$(key_from_line "$line")"
+      if [[ -n "${UPDATED[$k]:-}" ]]; then
+        printf '%s=%s\n' "$k" "$(escape_val "${CURRENT[$k]}")" >> "$tmp"
+        unset 'UPDATED[$k]'
+      else
+  printf '%s\n' "" >> ""
 fi
-
-# Write updated .env preserving comments & order.
-tmp="$(mktemp)"
-# First pass: rewrite existing lines with updated values
-while IFS= read -r line || [[ -n "$line" ]]; do
-  if is_assignment "$line"; then
-    k="$(key_from_line "$line")"
-    if [[ -n "${UPDATED[$k]:-}" ]]; then
-      printf '%s=%s\n' "$k" "$(escape_val "${CURRENT[$k]}")" >> "$tmp"
-      unset 'UPDATED[$k]'
     else
-      # Keep original line
       printf '%s\n' "$line" >> "$tmp"
     fi
-  else
-    printf '%s\n' "$line" >> "$tmp"
-  fi
-done < "$ENV_FILE"
+  done < "$ENV_FILE"
 
-# Second pass: append any new keys (from example) that weren't in .env
-if [[ ${#UPDATED[@]} -gt 0 ]]; then
-  echo "" >> "$tmp"
-  echo "# --- Added by setup on ${BACKUP_SUFFIX} ---" >> "$tmp"
-  for k in "${!UPDATED[@]}"; do
-    printf '%s=%s\n' "$k" "$(escape_val "${CURRENT[$k]}")" >> "$tmp"
-  done
+  if [[ ${#UPDATED[@]} -gt 0 ]]; then
+    echo "" >> "$tmp"
+    echo "# --- Added by setup on ${BACKUP_SUFFIX} ---" >> "$tmp"
+    for k in "${!UPDATED[@]}"; do
+      printf '%s=%s\n' "$k" "$(escape_val "${CURRENT[$k]}")" >> "$tmp"
+    done
+  fi
+
+  cp "$ENV_FILE" "${ENV_FILE}.bak.${BACKUP_SUFFIX}"
+  mv "$tmp" "$ENV_FILE"
+
+  echo
+  echo "[ok] Updated $ENV_FILE"
+  echo "     Backup saved to ${ENV_FILE}.bak.${BACKUP_SUFFIX}"
 fi
 
-# Backup and replace
-cp "$ENV_FILE" "${ENV_FILE}.bak.${BACKUP_SUFFIX}"
-mv "$tmp" "$ENV_FILE"
-
-echo
-echo "[ok] Updated $ENV_FILE"
-echo "     Backup saved to ${ENV_FILE}.bak.${BACKUP_SUFFIX}"
-
-# Final check: report any remaining empties (should be none)
+# ----------------- Final empty check -----------------
 empties=()
 while IFS= read -r line || [[ -n "$line" ]]; do
   is_assignment "$line" || continue
@@ -264,10 +272,58 @@ while IFS= read -r line || [[ -n "$line" ]]; do
   [[ -z "$v" ]] && empties+=("$k")
 done < "$ENV_FILE"
 
-if [[ ${#empties[@]} -eq 0 ]]; then
-  echo "[done] All variables have values."
-else
+if [[ ${#empties[@]} -gt 0 ]]; then
   echo "[warn] Some variables are still empty:" >&2
   for k in "${empties[@]}"; do echo "  - $k" >&2; done
-  exit 1
+  [[ "$MODE" == "ci" ]] && exit 1
+fi
+
+# ----------------- Emit tfvars JSON (for Terraform) -----------------
+mkdir -p "$(dirname "$TFVARS_OUT")"
+awk -F= '
+  BEGIN { print "{"; first=1 }
+  /^[[:space:]]*#/ { next }
+  /^[[:space:]]*$/ { next }
+  {
+    key=$1; sub(/^[[:space:]]+|[[:space:]]+$/, "", key)
+    $1=""
+    val=substr($0,2); sub(/^[[:space:]]+/, "", val)
+
+    # strip surrounding single/double quotes if present
+    if (val ~ /^".*"$/ || val ~ /^'"'"'.*'"'"'$/) { val=substr(val,2,length(val)-2) }
+
+    gsub(/"/, "\\\"", val)   # escape quotes
+    if (!first) printf(",\n"); first=0
+    printf("  \"%s\": \"%s\"", key, val)   # keys match .env; rename in TF if desired
+  }
+  END { print "\n}" }
+' "$ENV_FILE" > "$TFVARS_OUT"
+
+echo "[ok] Wrote tfvars: $TFVARS_OUT"
+
+# Optional: show a quick validation if jq exists
+if command -v jq >/dev/null 2>&1; then
+  jq -e . "$TFVARS_OUT" >/dev/null && echo "[ok] tfvars JSON validated with jq"
+fi
+
+# ----------------- Optional Terraform apply -----------------
+if [[ "$APPLY" == "yes" ]]; then
+  if [[ ! -d infra/docker ]]; then
+    echo "[error] Expected terraform dir infra/docker not found" >&2
+    exit 1
+  fi
+  echo "[info] Running terraform init/apply with -var-file=$TFVARS_OUT"
+  terraform -chdir=infra/docker init -upgrade
+  terraform -chdir=infra/docker apply -auto-approve -var-file="$TFVARS_OUT"
+  echo "[done] Terraform apply complete."
+else
+  cat <<EONEXT
+
+[next steps]
+  # To apply with the generated tfvars:
+  terraform -chdir=infra/docker init -upgrade
+  terraform -chdir=infra/docker apply -auto-approve -var-file="$TFVARS_OUT"
+
+
+EONEXT
 fi
