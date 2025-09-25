@@ -153,8 +153,6 @@ All containers run on isolated Docker network **app\_net**.
 
 ## Quick Start & Startup Instructions
 
-## Quick Start & Startup Instructions
-
 ### Quick Start
 
 ```bash
@@ -220,32 +218,36 @@ Follow these steps to get your development environment running:
      ```bash
      cp .env.example .env
      ```
-
-   * Or run the helper script to generate and validate your `.env` file:
+   * Or run the helper script to generate and validate your `.env` and `env.auto.tfvars.json`:
 
      ```bash
      chmod +x setup.sh
      ./setup.sh
      ```
 
-   * Fill in any missing values when prompted.
+     *Tip:* `setup.sh` auto-generates **Airflow** secrets (admin password + Fernet key) and writes Terraform vars for you.
+     If you want it to run Terraform too, use:
 
-   * The `.env` file is ignored by Git, so your secrets remain local.
+     ```bash
+     ./setup.sh --apply
+     ```
+
+     (Then you can skip Step 3.)
 
 3. **Build and Start Services (Terraform)**
 
    ```bash
    terraform -chdir=infra/docker init -upgrade
    terraform -chdir=infra/docker apply -auto-approve -var-file="env.auto.tfvars.json"
-
    ```
 
-   > The `setup.sh` script generates `env.auto.tfvars.json` automatically from `.env`.
+   > The `setup.sh` script generates `infra/docker/env.auto.tfvars.json`.
+   > With `-chdir=infra/docker`, the `-var-file` path is relative to that directory.
 
 4. **Verify Services Are Running**
 
    ```bash
-   docker ps --format 'table {{.Names}}	{{.Ports}}'
+   docker ps --format 'table {{.Names}}\t{{.Ports}}'
    ```
 
 5. **Access Services**
@@ -262,6 +264,7 @@ Follow these steps to get your development environment running:
    | Spark History       | [http://localhost:18080](http://localhost:18080)   |
    | JupyterLab          | [http://localhost:8889](http://localhost:8889)     |
    | Airflow Web UI      | [http://localhost:8099](http://localhost:8099)     |
+   | MinIO API           | [http://localhost:9000](http://localhost:9000)     |
    | MinIO Console       | [http://localhost:9001](http://localhost:9001)     |
    | Redpanda Console    | [http://localhost:8085](http://localhost:8085)     |
    | Redpanda Admin API  | [http://localhost:9644](http://localhost:9644)     |
@@ -306,23 +309,28 @@ Follow these steps to get your development environment running:
 Use these commands to validate that key services are healthy after startup:
 
 ```bash
-# FastAPI
+# FastAPI (JSON health)
 curl -sS http://localhost/health | jq .
 
-# Airflow Webserver
-curl -sS http://localhost:8099/health | jq .
+# Airflow Webserver (HEAD is safe even if auth is required)
+curl -I http://localhost:8099/ | head -n 1
+
+# MinIO API readiness & liveness
+curl -sS http://localhost:9000/minio/health/ready && echo " -> MinIO ready"
+curl -sS http://localhost:9000/minio/health/live && echo " -> MinIO live"
+
+# MinIO Console (login page should return headers)
+curl -I http://localhost:9001/ | head -n 1
 
 # Redpanda Ready API
 curl -sS http://localhost:9644/v1/status/ready | jq .
 
-# MinIO Console (login page should load)
-curl -I http://localhost:9001/
-
-# Spark Master UI (HTML should return)
-curl -I http://localhost:9090/
+# Spark Master UI (HTML headers)
+curl -I http://localhost:9090/ | head -n 1
 ```
 
-💡 Tip: For Terraform-managed environments, always run `terraform init` before `terraform apply` to configure the backend and providers.
+> 💡 If you enabled MinIO via `ENABLE_MINIO=true`, both the API (9000) and Console (9001) checks above should pass. If not, confirm the setting in your `env.auto.tfvars.json` and re-apply Terraform.
+
 
 
 ---
@@ -851,6 +859,31 @@ Example adjustment:
 ---
 
 ## Troubleshooting
+
+```
+# 1) See quick container status + ports
+docker ps --format 'table {{.Names}}\t{{.Status}}\t{{.Ports}}'
+
+# 2) Confirm host port bindings
+docker port spark-master
+docker port spark-worker-01
+docker port jupyterlab
+docker port redpanda
+
+# 3) Tail logs for the failing ones
+docker logs -n 200 -f spark-master
+docker logs -n 200 -f spark-worker-01
+docker logs -n 200 -f jupyterlab
+docker logs -n 200 -f redpanda
+
+# 4) Test inside the Docker network (bypasses host port bindings)
+docker exec -it spark-master curl -sf http://localhost:8080/ | head
+docker exec -it spark-worker-01 curl -sf http://localhost:8081/ | head
+docker exec -it jupyterlab curl -sf -L http://localhost:8888/ | head
+docker exec -it redpanda bash -lc 'rpk cluster info || true'
+
+
+```
 
 **Port already allocated / conflicts**
 

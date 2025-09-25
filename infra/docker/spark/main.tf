@@ -1,3 +1,5 @@
+#/infra/docker/spark/main.tf
+
 terraform {
   required_providers {
     docker = {
@@ -256,13 +258,13 @@ resource "docker_container" "minio" {
     type   = "volume"
     source = docker_volume.minio_data.name
   }
-  healthcheck {
-    test         = ["CMD", "curl", "-f", "http://localhost:9000/minio/health/ready"]
-    interval     = "10s"
-    timeout      = "3s"
-    retries      = 10
-    start_period = "10s"
-  }
+  # healthcheck {
+  #   test         = ["CMD", "curl", "-f", "http://localhost:9000/minio/health/ready"]
+  #   interval     = "10s"
+  #   timeout      = "3s"
+  #   retries      = 10
+  #   start_period = "10s"
+  # }
 
   command = ["minio", "server", "/data", "--console-address=:9001"]
 }

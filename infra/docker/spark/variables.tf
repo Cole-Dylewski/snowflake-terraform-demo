@@ -1,3 +1,4 @@
+#infra/docker/spark/variables.tf
 variable "env" {
   description = "Map of env values (typically from .env)"
   type        = map(string)
@@ -9,4 +10,3 @@ variable "network_name" {
   type        = string
   default     = "app_net"
 }
-
