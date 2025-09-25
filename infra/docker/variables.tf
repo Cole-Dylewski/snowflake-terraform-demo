@@ -110,6 +110,7 @@ variable "airflow_admin_password" {
   description = "Initial Airflow admin password."
   type        = string
   sensitive   = true
+  default     = "admin"
 }
 
 variable "airflow_admin_email" {

@@ -17,26 +17,31 @@ variable "web_external_port" {
 
 variable "airflow_admin_username" {
   description = "Initial Airflow admin username."
+  default = "admin"
   type        = string
 }
 
 variable "airflow_admin_password" {
   description = "Initial Airflow admin password."
   type        = string
+  default = "admin"
   sensitive   = true
 }
 
 variable "airflow_admin_email" {
   description = "Initial Airflow admin email."
+  default = "admin@example"
   type        = string
 }
 
 variable "airflow_admin_firstname" {
   description = "Initial Airflow admin first name."
+  default = "Admin"
   type        = string
 }
 
 variable "airflow_admin_lastname" {
   description = "Initial Airflow admin last name."
+  default = "User"
   type        = string
 }
