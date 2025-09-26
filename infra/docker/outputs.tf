@@ -19,8 +19,11 @@ output "service_urls" {
 
     # Redpanda
     redpanda_readiness = "http://localhost:9644/v1/status/ready"
-    kafka_bootstrap    = "localhost:9092" # if exposed; OK to ignore if you didn’t map it
+    kafka_bootstrap    = "localhost:19092" # if exposed; OK to ignore if you didn’t map it
 
+
+    minio_api     = "http://localhost:9000"
+    minio_console = "http://localhost:9001"
     # Optional: if you run a DB proxy in this project, uncomment these:
     # db_proxy_src      = "localhost:6432"
     # db_proxy_dst      = "localhost:6433"

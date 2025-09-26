@@ -110,6 +110,7 @@ variable "airflow_admin_password" {
   description = "Initial Airflow admin password."
   type        = string
   sensitive   = true
+  default     = "admin"
 }
 
 variable "airflow_admin_email" {
@@ -129,3 +130,12 @@ variable "airflow_admin_lastname" {
   type        = string
   default     = "User"
 }
+
+
+variable "MINIO_ROOT_USER"     { 
+  type = string 
+  }
+variable "MINIO_ROOT_PASSWORD" { 
+  type = string
+  sensitive = true 
+  }

@@ -1,3 +1,5 @@
+#/infra/docker/spark/main.tf
+
 terraform {
   required_providers {
     docker = {
@@ -55,7 +57,7 @@ resource "docker_image" "jupyter" {
 }
 resource "docker_image" "minio" {
   count = local.cfg.ENABLE_MINIO ? 1 : 0
-  name  = "bitnami/minio:2024"
+  name  = "minio/minio:latest"
 }
 
 # Spark Master
@@ -256,6 +258,13 @@ resource "docker_container" "minio" {
     type   = "volume"
     source = docker_volume.minio_data.name
   }
+  # healthcheck {
+  #   test         = ["CMD", "curl", "-f", "http://localhost:9000/minio/health/ready"]
+  #   interval     = "10s"
+  #   timeout      = "3s"
+  #   retries      = 10
+  #   start_period = "10s"
+  # }
 
   command = ["minio", "server", "/data", "--console-address=:9001"]
 }
