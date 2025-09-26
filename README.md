@@ -279,6 +279,8 @@ Follow these steps to get your development environment running:
 
    ```bash
    #!/usr/bin/env bash
+   terraform -chdir=infra/docker destroy -auto-approve
+   
    set -Eeuo pipefail
 
    echo ">>> Stopping & removing ALL containers…"
