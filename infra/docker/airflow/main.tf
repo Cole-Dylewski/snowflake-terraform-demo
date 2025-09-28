@@ -30,7 +30,7 @@ resource "docker_container" "airflow_db" {
 ########################################
 # Volumes (shared across Airflow services)
 ########################################
-resource "docker_volume" "airflow_dags"    { name = "airflow_dags" }
+
 resource "docker_volume" "airflow_logs"    { name = "airflow_logs" }
 resource "docker_volume" "airflow_plugins" { name = "airflow_plugins" }
 
@@ -50,6 +50,8 @@ locals {
     "AIRFLOW_ADMIN_EMAIL=${var.airflow_admin_email}",
     "AIRFLOW_ADMIN_FIRSTNAME=${var.airflow_admin_firstname}",
     "AIRFLOW_ADMIN_LASTNAME=${var.airflow_admin_lastname}",
+    "AIRFLOW__CORE__DAGS_FOLDER=/opt/airflow/dags",
+
   ]
 }
 
@@ -72,10 +74,13 @@ resource "docker_container" "airflow_web" {
   }
 
   # Named volumes
+  # NEW: bind the repo's dags/ into the container
   volumes {
-    volume_name    = docker_volume.airflow_dags.name
-    container_path = "/opt/airflow/dags"
-  }
+  host_path      = abspath("${path.module}/../../../dags")  # <repo-root>/dags
+  container_path = "/opt/airflow/dags"
+  read_only      = false
+}
+
   volumes {
     volume_name    = docker_volume.airflow_logs.name
     container_path = "/opt/airflow/logs"
@@ -121,9 +126,12 @@ resource "docker_container" "airflow_scheduler" {
   }
 
   volumes {
-    volume_name    = docker_volume.airflow_dags.name
+    host_path      = abspath("${path.module}/../../../dags")  # <repo-root>/dags
     container_path = "/opt/airflow/dags"
+    read_only      = false
   }
+
+
   volumes {
     volume_name    = docker_volume.airflow_logs.name
     container_path = "/opt/airflow/logs"
@@ -152,9 +160,12 @@ resource "docker_container" "airflow_triggerer" {
   }
 
   volumes {
-    volume_name    = docker_volume.airflow_dags.name
-    container_path = "/opt/airflow/dags"
-  }
+  host_path      = abspath("${path.root}/../../dags")  # -> <repo-root>/dags
+  container_path = "/opt/airflow/dags"
+  read_only      = false
+}
+
+
   volumes {
     volume_name    = docker_volume.airflow_logs.name
     container_path = "/opt/airflow/logs"
