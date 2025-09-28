@@ -74,7 +74,11 @@ resource "docker_container" "airflow_web" {
   }
 
   # Named volumes
-  # NEW: bind the repo's dags/ into the container
+  volumes {
+      host_path      = abspath("${path.module}/requirements.txt")  # infra/docker/airflow/airflow-requirements.txt
+      container_path = "/opt/airflow/requirements.txt"
+      read_only      = true
+    }
   volumes {
   host_path      = abspath("${path.module}/../../../dags")  # <repo-root>/dags
   container_path = "/opt/airflow/dags"
@@ -92,21 +96,24 @@ resource "docker_container" "airflow_web" {
 
   depends_on = [docker_container.airflow_db]
 
-  # Use heredoc so Terraform doesn't choke on multi-line strings
-      command = [
-    "bash", "-lc", <<-EOT
-      set -e
-      airflow db migrate
-      airflow users create \
-        --username "$${AIRFLOW_ADMIN_USERNAME}" \
-        --password "$${AIRFLOW_ADMIN_PASSWORD}" \
-        --firstname "$${AIRFLOW_ADMIN_FIRSTNAME}" \
-        --lastname  "$${AIRFLOW_ADMIN_LASTNAME}" \
-        --role Admin \
-        --email "$${AIRFLOW_ADMIN_EMAIL}" || true
-      exec airflow webserver
-    EOT
-  ]
+  command = [
+  "bash", "-lc", <<-EOT
+    set -e
+    if [ -f /opt/airflow/requirements.txt ]; then
+      pip install --no-cache-dir -r /opt/airflow/requirements.txt
+    fi
+    airflow db migrate
+    airflow users create \
+      --username "$${AIRFLOW_ADMIN_USERNAME}" \
+      --password "$${AIRFLOW_ADMIN_PASSWORD}" \
+      --firstname "$${AIRFLOW_ADMIN_FIRSTNAME}" \
+      --lastname  "$${AIRFLOW_ADMIN_LASTNAME}" \
+      --role Admin \
+      --email "$${AIRFLOW_ADMIN_EMAIL}" || true
+    exec airflow webserver
+  EOT
+]
+
 
 
 
@@ -130,6 +137,12 @@ resource "docker_container" "airflow_scheduler" {
     container_path = "/opt/airflow/dags"
     read_only      = false
   }
+  # Mount per-service Python deps
+  volumes {
+    host_path      = abspath("${path.module}/requirements.txt")  # infra/docker/airflow/requirements.txt
+    container_path = "/opt/airflow/requirements.txt"
+    read_only      = true
+  }
 
 
   volumes {
@@ -143,7 +156,15 @@ resource "docker_container" "airflow_scheduler" {
 
   depends_on = [docker_container.airflow_db]
 
-  command = ["bash", "-lc", "exec airflow scheduler"]
+  command = ["bash", "-lc", <<-EOT
+  set -e
+  if [ -f /opt/airflow/requirements.txt ]; then
+    pip install --no-cache-dir -r /opt/airflow/requirements.txt
+  fi
+  exec airflow scheduler
+EOT
+]
+
   restart = "always"
 }
 
@@ -158,7 +179,11 @@ resource "docker_container" "airflow_triggerer" {
   networks_advanced {
     name = var.network_name
   }
-
+  volumes {
+    host_path      = abspath("${path.module}/requirements.txt")  # infra/docker/airflow/airflow-requirements.txt
+    container_path = "/opt/airflow/requirements.txt"
+    read_only      = true
+  }
   volumes {
   host_path      = abspath("${path.root}/../../dags")  # -> <repo-root>/dags
   container_path = "/opt/airflow/dags"
@@ -177,6 +202,14 @@ resource "docker_container" "airflow_triggerer" {
 
   depends_on = [docker_container.airflow_db]
 
-  command = ["bash", "-lc", "exec airflow triggerer"]
+  command = ["bash", "-lc", <<-EOT
+  set -e
+  if [ -f /opt/airflow/requirements.txt ]; then
+    pip install --no-cache-dir -r /opt/airflow/requirements.txt
+  fi
+  exec airflow triggerer
+EOT
+]
+
   restart = "always"
 }

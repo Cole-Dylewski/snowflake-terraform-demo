@@ -261,12 +261,12 @@ if $needs_write; then
     done
   fi
 
-  cp "$ENV_FILE" "${ENV_FILE}.bak.${BACKUP_SUFFIX}"
+  # cp "$ENV_FILE" "${ENV_FILE}.bak.${BACKUP_SUFFIX}"
   mv "$tmp" "$ENV_FILE"
 
   echo ""
   echo "[ok] Updated $ENV_FILE"
-  echo "     Backup saved to ${ENV_FILE}.bak.${BACKUP_SUFFIX}"
+  # echo "     Backup saved to ${ENV_FILE}.bak.${BACKUP_SUFFIX}"
 else
   echo "[ok] $ENV_FILE is complete. No changes needed."
 fi
@@ -397,7 +397,6 @@ else
 
 EONEXT
 fi
-
 # ================= Healthchecks & URL tests =================
 run_healthchecks() {
   echo
@@ -408,8 +407,9 @@ run_healthchecks() {
 
   http_ok() { # url label
     local url="$1" label="${2:-$1}" code
-    code="$(curl -fsS -o /dev/null -w '%{http_code}' --max-time 5 "$url" || echo 000)"
-    if [[ "$code" =~ ^2|^3 ]]; then
+    # Treat any 2xx/3xx as success (Airflow redirects / -> /home with 302)
+    code="$(curl -fsS -o /dev/null -w '%{http_code}' --max-time 8 --connect-timeout 3 "$url" || echo 000)"
+    if [[ "$code" =~ ^(2|3)[0-9]{2}$ ]]; then
       printf '✅  %-35s %s\n' "$label" "$url"; ((ok++))
     else
       printf '❌  %-35s %s  (http %s)\n' "$label" "$url" "$code"; ((fail++))
@@ -429,12 +429,22 @@ run_healthchecks() {
   docker_has() { docker ps -q -f "name=^/$1$" -f "name=$1" >/dev/null; }
 
   airflow_port() {
+    # Prefer Docker's published mapping first
     local p
-    p="$(docker port airflow_web 8080/tcp 2>/dev/null | awk -F: 'NF{print $NF; exit}')"
+    p="$(docker port airflow_web 8080/tcp 2>/dev/null | sed -E 's/.*:([0-9]+)$/\1/' | head -n1)"
     if [[ -n "$p" ]]; then echo "$p"; return 0; fi
+
+    # Fallback guesses with multiple tools (in case ss isn't installed)
     for guess in 8099 8080; do
-      ss -ltn "sport = :$guess" >/dev/null 2>&1 && { echo "$guess"; return 0; }
-    done; return 1
+      if command -v ss >/dev/null 2>&1; then
+        ss -ltn 2>/dev/null | awk '{print $4}' | grep -Eq "[:.]$guess\$" && { echo "$guess"; return 0; }
+      elif command -v lsof >/dev/null 2>&1; then
+        lsof -iTCP:"$guess" -sTCP:LISTEN >/dev/null 2>&1 && { echo "$guess"; return 0; }
+      elif command -v netstat >/dev/null 2>&1; then
+        netstat -lnt 2>/dev/null | awk '{print $4}' | grep -Eq "[:.]$guess\$" && { echo "$guess"; return 0; }
+      fi
+    done
+    return 1
   }
 
   echo "→ Nginx / FastAPI (via reverse proxy)"
@@ -460,7 +470,7 @@ run_healthchecks() {
     AF_PORT="$(airflow_port || true)"
     if [[ -n "${AF_PORT:-}" ]]; then
       http_ok "http://localhost:${AF_PORT}/"         "Airflow Web UI"
-      curl -fsS -o /dev/null -w '' --max-time 3 "http://localhost:${AF_PORT}/health" >/dev/null 2>&1 \
+      curl -fsS -o /dev/null --max-time 3 "http://localhost:${AF_PORT}/health" >/dev/null 2>&1 \
         && printf '✅  %-35s %s\n' "Airflow /health" "http://localhost:${AF_PORT}/health" \
         || printf 'ℹ️   %-35s %s\n' "Airflow /health (optional)" "http://localhost:${AF_PORT}/health"
     else

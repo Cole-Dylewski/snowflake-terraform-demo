@@ -1,0 +1,6 @@
+
+-c https://raw.githubusercontent.com/apache/airflow/constraints-3.0.0/constraints-3.11.txt
+
+apache-airflow-providers-apache-spark
+apache-airflow-providers-snowflake
+snowflake-connector-python
