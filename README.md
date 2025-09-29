@@ -247,7 +247,8 @@ Follow these steps to get your development environment running:
 4. **Verify Services Are Running**
 
    ```bash
-   docker ps --format 'table {{.Names}}\t{{.Ports}}'
+#   docker ps --format 'table {{.Names}}\t{{.Ports}}'
+  ./scripts/doctor.sh
    ```
 
 5. **Access Services**
