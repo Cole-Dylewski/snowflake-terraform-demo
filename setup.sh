@@ -81,6 +81,33 @@ strip_quotes() {
 }
 escape_val() { printf '"%s"' "$(printf '%s' "$1" | sed 's/\"/\\\"/g')"; }
 
+
+need_cmd() { command -v "$1" >/dev/null 2>&1 || { echo "Missing: $1" >&2; return 1; }; }
+
+echo "==> Preflight checks"
+need_cmd docker
+need_cmd terraform
+need_cmd curl
+
+# jq (Debian/RPi path)
+if ! command -v jq >/dev/null 2>&1; then
+  echo "Installing jq (requires sudo)..."
+  if grep -qi "debian\|ubuntu\|raspbian" /etc/os-release; then
+    sudo apt-get update -y && sudo apt-get install -y jq
+  else
+    echo "Please install jq manually for your OS." >&2
+    exit 1
+  fi
+fi
+
+# Validate Terraform version if you want a floor:
+TF_MIN="1.7.0"
+if ! printf '%s\n%s\n' "$TF_MIN" "$(terraform version -json | jq -r .terraform_version)" \
+  | sort -VC 2>/dev/null; then
+  echo "Terraform must be >= $TF_MIN" >&2
+  exit 1
+fi
+
 # ============== Build defaults (from example) ===============
 declare -A DEFAULTS
 if [[ -n "$EXAMPLE_FILE" ]]; then
