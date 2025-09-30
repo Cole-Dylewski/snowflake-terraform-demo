@@ -22,7 +22,11 @@ locals {
     # Ensure web binds correctly even without CLI flags
     "AIRFLOW__WEBSERVER__WEB_SERVER_HOST=0.0.0.0",
     "AIRFLOW__WEBSERVER__WEB_SERVER_PORT=8080",
+    # Airflow 3.x: API server bind (replaces webserver bind)
+    "AIRFLOW__API__HOST=0.0.0.0",
+    "AIRFLOW__API__PORT=8080",
 
+    
     # Admin bootstrap
     "AIRFLOW_ADMIN_USERNAME=${var.airflow_admin_username}",
     "AIRFLOW_ADMIN_PASSWORD=${var.airflow_admin_password}",
@@ -124,13 +128,14 @@ resource "docker_container" "airflow_web" {
     EOT
   ]
 
-  healthcheck {
-    test         = ["CMD-SHELL", "curl -sf http://localhost:8080/health || exit 1"]
+    healthcheck {
+    test         = ["CMD-SHELL", "curl -sf http://localhost:8080/health || curl -sf http://localhost:8080/api/health || exit 1"]
     interval     = "10s"
     timeout      = "5s"
-    retries      = 30
+    retries      = "30"
     start_period = "90s"
   }
+
 
   restart = "always"
 }
