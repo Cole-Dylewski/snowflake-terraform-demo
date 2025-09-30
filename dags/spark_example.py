@@ -1,18 +1,27 @@
+import pendulum
 from airflow import DAG
-from airflow.utils.dates import days_ago
 from airflow.providers.apache.spark.operators.spark_submit import SparkSubmitOperator
 
+"""
+Runs the built-in SparkPi example against your local Spark cluster started by Terraform.
+No automatic schedule; trigger manually in the UI.
+"""
+
 with DAG(
-    "spark_pi_demo",
-    start_date=days_ago(1),
-    schedule="@daily",
+    dag_id="spark_example",
+    start_date=pendulum.datetime(2024, 1, 1, tz="UTC"),
+    schedule=None,
     catchup=False,
-    tags=["spark", "demo"],
+    default_args={"owner": "airflow"},
+    description="Demo: run Spark Pi on the local Spark cluster",
+    tags=["demo", "spark"],
 ) as dag:
+
     spark_pi = SparkSubmitOperator(
         task_id="spark_pi",
-        application="/opt/spark/examples/src/main/python/pi.py",
-        conn_id="spark_default",  # set in Airflow Connections
-        name="spark-pi",
-        application_args=["10"],
+        application="/opt/bitnami/spark/examples/src/main/python/pi.py",
+        # Use the Spark Master in this project directly (no Airflow Connection needed)
+        conf={"spark.master": "spark://spark-master:7077"},
+        deploy_mode="client",
+        verbose=True,
     )
