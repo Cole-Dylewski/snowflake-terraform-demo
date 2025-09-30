@@ -1,16 +1,24 @@
+import pendulum
 from airflow import DAG
-from airflow.utils.dates import days_ago
-from airflow.providers.snowflake.operators.snowflake import SnowflakeOperator
+from airflow.providers.common.sql.operators.sql import SQLExecuteQueryOperator
+
+"""
+Minimal Snowflake example using the generic SQL operator.
+Requires an Airflow Connection named `snowflake_default` with your account/warehouse/db/role.
+"""
 
 with DAG(
-    "snowflake_heartbeat",
-    start_date=days_ago(1),
+    dag_id="snowflake_example",
+    start_date=pendulum.datetime(2024, 1, 1, tz="UTC"),
     schedule=None,
     catchup=False,
-    tags=["snowflake", "demo"],
+    default_args={"owner": "airflow"},
+    description="Demo: simple query on Snowflake via generic SQL operator",
+    tags=["demo", "snowflake"],
 ) as dag:
-    ping = SnowflakeOperator(
-        task_id="sf_version",
-        sql="SELECT CURRENT_VERSION()",
-        snowflake_conn_id="snowflake_default",  # set in Airflow Connections
+
+    run_query = SQLExecuteQueryOperator(
+        task_id="run_query",
+        conn_id="snowflake_default",   # Configure this in the Airflow UI / Connections
+        sql="SELECT CURRENT_TIMESTAMP();",
     )
