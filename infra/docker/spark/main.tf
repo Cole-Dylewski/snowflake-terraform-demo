@@ -8,7 +8,6 @@ terraform {
   }
 }
 
-
 locals {
   # Parsed config (numbers via tonumber; booleans via string match)
   cfg = {
@@ -32,8 +31,6 @@ locals {
   }
 }
 
-
-
 # Volumes
 resource "docker_volume" "spark_events" {
   name = "spark_events"
@@ -50,11 +47,14 @@ resource "docker_volume" "minio_data" {
 
 # Images
 resource "docker_image" "spark" {
-  name = "bitnami/spark:3.5.1-debian-12-r8"
+  # Docker Official Image (least likely to be restricted)
+  name = "spark:3.5.6-java17-r"
 }
+
 resource "docker_image" "jupyter" {
   name = "jupyter/pyspark-notebook:python-3.11"
 }
+
 resource "docker_image" "minio" {
   count = local.cfg.ENABLE_MINIO ? 1 : 0
   name  = "minio/minio:latest"
@@ -66,9 +66,14 @@ resource "docker_container" "spark_master" {
   image = docker_image.spark.image_id
 
   env = [
-    "SPARK_MODE=master",
-    "SPARK_MASTER_HOST=spark-master",
-    "SPARK_LOG_LEVEL=INFO"
+    "SPARK_NO_DAEMONIZE=true",
+  ]
+
+  command = [
+    "/opt/spark/sbin/start-master.sh",
+    "-h", "spark-master",
+    "-p", tostring(local.cfg.SPARK_MASTER_PORT),
+    "--webui-port", tostring(local.cfg.SPARK_MASTER_UI_PORT) # 9090 by default
   ]
 
   ports {
@@ -76,7 +81,8 @@ resource "docker_container" "spark_master" {
     external = local.cfg.SPARK_MASTER_PORT
   }
   ports {
-    internal = 8080
+    # ⬇️ was 8080; must match the webui-port above
+    internal = local.cfg.SPARK_MASTER_UI_PORT
     external = local.cfg.SPARK_MASTER_UI_PORT
   }
 
@@ -85,13 +91,14 @@ resource "docker_container" "spark_master" {
   }
 
   mounts {
-    target = "/opt/bitnami/spark/tmp/spark-events"
+    target = "/event-logs"
     type   = "volume"
     source = docker_volume.spark_events.name
   }
 }
 
-# Spark Workers
+
+# Spark Workers (official image)
 resource "docker_container" "spark_worker" {
   count = local.cfg.SPARK_WORKER_COUNT
 
@@ -99,13 +106,19 @@ resource "docker_container" "spark_worker" {
   image = docker_image.spark.image_id
 
   env = [
-    "SPARK_MODE=worker",
-    "SPARK_MASTER_URL=spark://spark-master:${local.cfg.SPARK_MASTER_PORT}",
-    "SPARK_WORKER_CORES=${local.cfg.SPARK_WORKER_CORES}",
-    "SPARK_WORKER_MEMORY=${local.cfg.SPARK_WORKER_MEMORY}",
-    "SPARK_LOG_LEVEL=INFO"
+    "SPARK_NO_DAEMONIZE=true",
   ]
 
+  # Start worker and point at master; set cores/memory/UI port
+  command = [
+    "/opt/spark/sbin/start-worker.sh",
+    "spark://spark-master:${local.cfg.SPARK_MASTER_PORT}",
+    "--cores", tostring(local.cfg.SPARK_WORKER_CORES),
+    "--memory", local.cfg.SPARK_WORKER_MEMORY,
+    "--webui-port", "8081"
+  ]
+
+  # expose only the first worker's UI, like before
   dynamic "ports" {
     for_each = count.index == 0 ? [1] : []
     content {
@@ -121,18 +134,22 @@ resource "docker_container" "spark_worker" {
   depends_on = [docker_container.spark_master]
 }
 
-# Spark History Server (fix perms as root, then start)
+# Spark History Server (official image)
 resource "docker_container" "spark_history" {
   name    = "spark-history"
   image   = docker_image.spark.image_id
   restart = "unless-stopped"
   user    = "0:0"
 
-  entrypoint = ["/bin/bash", "-lc"]
-  command    = ["mkdir -p /opt/bitnami/spark/tmp/spark-events && chown -R 1001:0 /opt/bitnami/spark/tmp/spark-events && chmod 0777 /opt/bitnami/spark/tmp/spark-events && exec /opt/bitnami/spark/bin/spark-class org.apache.spark.deploy.history.HistoryServer"]
-
   env = [
-    "SPARK_HISTORY_OPTS=-Dspark.history.fs.logDirectory=file:/opt/bitnami/spark/tmp/spark-events -Dspark.history.ui.port=${local.cfg.SPARK_HISTORY_PORT}"
+    "SPARK_NO_DAEMONIZE=true",
+    "SPARK_HISTORY_OPTS=-Dspark.history.fs.logDirectory=file:/event-logs -Dspark.history.ui.port=${local.cfg.SPARK_HISTORY_PORT}"
+  ]
+
+  # Start the history server; ensure the log dir exists/perm’d
+  entrypoint = ["/bin/bash", "-lc"]
+  command    = [
+    "mkdir -p /event-logs && chown -R 1001:0 /event-logs || true && chmod 0777 /event-logs && exec /opt/spark/sbin/start-history-server.sh"
   ]
 
   ports {
@@ -144,11 +161,6 @@ resource "docker_container" "spark_history" {
     name = var.network_name
   }
 
-  mounts {
-    target = "/opt/bitnami/spark/tmp/spark-events"
-    type   = "volume"
-    source = docker_volume.spark_events.name
-  }
   mounts {
     target = "/event-logs"
     type   = "volume"
@@ -166,17 +178,16 @@ resource "docker_container" "spark_history" {
   depends_on = [docker_container.spark_master, docker_container.spark_worker]
 }
 
+
 # JupyterLab (PySpark) – writes event logs into the same volume
 resource "docker_container" "jupyter" {
   name  = "jupyterlab"
   image = docker_image.jupyter.image_id
 
-
-
   env = [
     "JUPYTER_TOKEN=${local.cfg.JUPYTER_TOKEN}",
     "SPARK_MASTER=spark://spark-master:${local.cfg.SPARK_MASTER_PORT}",
-    "PYSPARK_SUBMIT_ARGS=--conf spark.eventLog.enabled=true --conf spark.eventLog.dir=file:/opt/bitnami/spark/tmp/spark-events pyspark-shell",
+    "PYSPARK_SUBMIT_ARGS=--conf spark.eventLog.enabled=true --conf spark.eventLog.dir=file:/event-logs pyspark-shell",
     "NB_UID=1001",
     "NB_GID=0"
   ]
@@ -189,8 +200,9 @@ resource "docker_container" "jupyter" {
   networks_advanced {
     name = var.network_name
   }
+
   mounts {
-    target = "/opt/bitnami/spark/tmp/spark-events"
+    target = "/event-logs"
     type   = "volume"
     source = docker_volume.spark_events.name
   }
@@ -204,11 +216,6 @@ resource "docker_container" "jupyter" {
     type   = "volume"
     source = docker_volume.jupyter_home.name
   }
-  mounts {
-    target = "/event-logs"
-    type   = "volume"
-    source = docker_volume.spark_events.name
-  }
 
   mounts {
     type      = "bind"
@@ -217,13 +224,10 @@ resource "docker_container" "jupyter" {
     read_only = true
   }
 
-
-
   command = [
     "bash", "-lc",
     "if [ -f /tmp/requirements.txt ]; then pip install -r /tmp/requirements.txt; fi; exec start-notebook.sh"
   ]
-
 
   depends_on = [docker_container.spark_master]
 }
@@ -258,13 +262,6 @@ resource "docker_container" "minio" {
     type   = "volume"
     source = docker_volume.minio_data.name
   }
-  # healthcheck {
-  #   test         = ["CMD", "curl", "-f", "http://localhost:9000/minio/health/ready"]
-  #   interval     = "10s"
-  #   timeout      = "3s"
-  #   retries      = 10
-  #   start_period = "10s"
-  # }
 
   command = ["minio", "server", "/data", "--console-address=:9001"]
 }
